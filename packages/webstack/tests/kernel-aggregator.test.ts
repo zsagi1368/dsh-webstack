@@ -5,7 +5,11 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseEngine } from '../src/engines/engine.ts';
-import { type AggregatorSnapshot, WebstackAggregator } from '../src/kernel/aggregator.ts';
+import {
+  type AggregatorSnapshot,
+  BAND_BUDGET_MS,
+  WebstackAggregator,
+} from '../src/kernel/aggregator.ts';
 import { engineError } from '../src/kernel/errors.ts';
 import { EngineRegistry } from '../src/kernel/registry.ts';
 import type {
@@ -327,5 +331,215 @@ describe('WebstackAggregator.fetch 全管线（假出站客户端）', () => {
     expect(seenMaxBytes).toBe(16_000);
     // 空正文带解释兜底（绝不静默空白）。
     expect(res.body.content.length).toBeGreaterThan(0);
+  });
+});
+
+describe('WebstackAggregator · 多引擎 fuse 融合与复杂度档预算 race（P1）', () => {
+  /** >48 字符查询 → complex 档 → 全池并发 + 融合。 */
+  const COMPLEX_QUERY =
+    'a deliberately long research query intended to cross the forty-eight character complexity line';
+
+  /** 尊重取消信号的慢腿：预算到点被真取消，BaseEngine 记 aborted。 */
+  function hangUntilAborted(req: EngineSearchRequest): Promise<NormalizedHit[]> {
+    return new Promise<NormalizedHit[]>((resolve, reject) => {
+      if (req.signal?.aborted) {
+        reject(engineError('aborted', 'aborted before start'));
+        return;
+      }
+      const timer = setTimeout(() => resolve([hit('https://late.example/never', 'never')]), 10_000);
+      req.signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(engineError('aborted', 'leg aborted by band budget'));
+        },
+        { once: true },
+      );
+    });
+  }
+
+  it('BAND_BUDGET_MS 冻结常量：medium=5s / complex=8s / simple 无整体预算', () => {
+    expect(BAND_BUDGET_MS.medium).toBe(5000);
+    expect(BAND_BUDGET_MS.complex).toBe(8000);
+    expect(BAND_BUDGET_MS.simple).toBeUndefined();
+    expect(Object.isFrozen(BAND_BUDGET_MS)).toBe(true);
+  });
+
+  it('complex 档并发融合：fusionParams.authorityBoost 提升权威域至首位', async () => {
+    const ddg = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://en.wikipedia.org/wiki/Fusion', 'WIKI'),
+      hit('https://plain.example/a', 'PA'),
+    ]);
+    const bing = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => [
+      hit('https://plain.example/b', 'PB'),
+    ]);
+    const reg = new EngineRegistry();
+    reg.register(ddg);
+    reg.register(bing);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ fusionParams: { authorityBoost: 1.6 } }),
+      registry: reg,
+    });
+    const res = await agg.search({ query: COMPLEX_QUERY });
+    // WIKI 权威乘子登顶；PA 与 PB 同 host，PA 折扣 + rank 靠后 → 末位。
+    expect(res.sources.map((s) => s.url)).toEqual([
+      'https://en.wikipedia.org/wiki/Fusion',
+      'https://plain.example/b',
+      'https://plain.example/a',
+    ]);
+  });
+
+  it('复杂度档整体预算 race：慢腿记 attempts aborted，快腿部分结果仍出', async () => {
+    const fast = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://fast.example/1', 'F1'),
+      hit('https://fast.example/2', 'F2'),
+    ]);
+    const slow = new ScriptedEngine(fakeDescriptor('bing-lite'), hangUntilAborted);
+    const reg = new EngineRegistry();
+    reg.register(fast);
+    reg.register(slow);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 60 } }),
+      registry: reg,
+    });
+    const startedAt = Date.now();
+    const res = await agg.search({ query: COMPLEX_QUERY });
+    // 快腿结果即刻返回，慢腿没有拖住整场操作。
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+    expect(res.sources.map((s) => s.title)).toEqual(['F1', 'F2']);
+    // 慢腿被真取消：引擎自身审计记录 aborted。
+    expect(slow.lastAttempt?.outcome).toBe('aborted');
+    expect(reg.recentAttempts('bing-lite')[0]?.outcome).toBe('aborted');
+    expect(fast.lastAttempt?.outcome).toBe('ok');
+  });
+
+  it('忽略取消信号的慢腿同样被预算裁掉且不产生未处理拒绝', async () => {
+    const fast = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://only-fast.example/1', 'OF'),
+    ]);
+    const stubborn = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 400)); // 无视 signal
+      return [hit('https://stubborn.example/late', 'LATE')];
+    });
+    const reg = new EngineRegistry();
+    reg.register(fast);
+    reg.register(stubborn);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 50 } }),
+      registry: reg,
+    });
+    const res = await agg.search({ query: COMPLEX_QUERY });
+    expect(res.sources.map((s) => s.title)).toEqual(['OF']);
+    expect(agg.cache.stats().size).toBe(1); // 部分结果照常入缓存
+    // 等顽固腿迟到结算落地，验证无 unhandled rejection。
+    await new Promise<void>((resolve) => setTimeout(resolve, 450));
+  });
+
+  it('caller abort 在融合路径立即终止：抛 aborted 且不写缓存', async () => {
+    const ddg = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://d.example/1', 'D'),
+    ]);
+    const bing = new ScriptedEngine(fakeDescriptor('bing-lite'), hangUntilAborted);
+    const reg = new EngineRegistry();
+    reg.register(ddg);
+    reg.register(bing);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 5000 } }),
+      registry: reg,
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(agg.search({ query: COMPLEX_QUERY }, controller.signal)).rejects.toMatchObject({
+      name: 'EngineError',
+      code: 'aborted',
+    });
+    expect(agg.cache.stats().size).toBe(0);
+  });
+
+  it('全部融合腿失败时抛首个失败错误（错误如实上呈）', async () => {
+    const badA = new ScriptedEngine(fakeDescriptor('ddg'), async () => {
+      throw engineError('auth', 'key rejected by ddg leg', {});
+    });
+    const badB = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => {
+      throw engineError('auth', 'key rejected by bing leg', {});
+    });
+    const reg = new EngineRegistry();
+    reg.register(badA);
+    reg.register(badB);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 1000 } }),
+      registry: reg,
+    });
+    await expect(agg.search({ query: COMPLEX_QUERY })).rejects.toMatchObject({
+      code: 'auth',
+    });
+  });
+
+  it('fusionEnabled=false：多引擎计划退回顺序直出（不融合、不改序）', async () => {
+    const ddg = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://seq.example/d1', 'D1'),
+      hit('https://common.example/both', 'DDG-VER'),
+    ]);
+    const bing = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => [
+      hit('https://seq.example/b1', 'B1'),
+      hit('https://common.example/both', 'BING-VER'),
+    ]);
+    const reg = new EngineRegistry();
+    reg.register(ddg);
+    reg.register(bing);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ fusionEnabled: false }),
+      registry: reg,
+    });
+    // medium 档（17–48 字符）→ 宽度 2；顺序执行按注册序拼接。
+    const res = await agg.search({ query: 'sequential direct concat probe phrase' });
+    expect(res.sources.map((s) => s.url)).toEqual([
+      'https://seq.example/d1',
+      'https://common.example/both',
+      'https://seq.example/b1',
+      'https://common.example/both',
+    ]);
+  });
+
+  it('融合结果写入缓存：第二次 complex 查询零引擎调用', async () => {
+    const ddg = new ScriptedEngine(fakeDescriptor('ddg'), async () => [
+      hit('https://cached.example/1', 'C1'),
+    ]);
+    const bing = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => [
+      hit('https://cached.example/2', 'C2'),
+    ]);
+    const reg = new EngineRegistry();
+    reg.register(ddg);
+    reg.register(bing);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 1000 } }),
+      registry: reg,
+    });
+    const first = await agg.search({ query: COMPLEX_QUERY });
+    const second = await agg.search({ query: COMPLEX_QUERY });
+    expect(first.sources).toEqual(second.sources);
+    expect(ddg.calls).toBe(1);
+    expect(bing.calls).toBe(1);
+  });
+
+  it('快慢腿并存时融合仍按计划引擎序取集合（确定性输出）', async () => {
+    // bing 极快、ddg 慢一拍：完成顺序颠倒不改变融合输入序与输出序。
+    const slowish = new ScriptedEngine(fakeDescriptor('ddg'), async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 30));
+      return [hit('https://order.example/ddg', 'FROM-DDG')];
+    });
+    const quick = new ScriptedEngine(fakeDescriptor('bing-lite'), async () => [
+      hit('https://order.example/bing', 'FROM-BING'),
+    ]);
+    const reg = new EngineRegistry();
+    reg.register(slowish);
+    reg.register(quick);
+    const agg = new WebstackAggregator({
+      snapshot: snap({ bandBudgetMs: { complex: 2000 } }),
+      registry: reg,
+    });
+    const res = await agg.search({ query: COMPLEX_QUERY });
+    // 两腿各 rank1 并列最高分 → 首见序（计划序）裁决 ddg 在前。
+    expect(res.sources.map((s) => s.title)).toEqual(['FROM-DDG', 'FROM-BING']);
   });
 });

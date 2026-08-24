@@ -4,8 +4,10 @@
  *
  * search 全管线（W-B-74 操作起点快照）：
  * enabled 检查 → extractHints → estimateBand → planSearch → resolveCreds（指纹）
- * → 缓存查询（命中直接回）→ miss 则 singleFlight 包裹：registry.runWithFallback
- * → 多引擎 RRF 轻量融合 → 截断 → 写缓存原文 → 映射 SeamWebSearchResult。
+ * → 缓存查询（命中直接回）→ miss 则 singleFlight 包裹：多引擎走
+ * runFusedLegs（按复杂度档整体预算 race，allSettled + AbortSignal 真取消，
+ * 超时慢腿记 attempts 'aborted'、已返回部分结果仍参与融合）→ fusion.fuse()
+ * 融合 → 截断 → 写缓存原文 → 映射 SeamWebSearchResult；单引擎/关闭融合直出。
  *
  * fetch 管线：预算从快照派生（canonical = min(maxContentChars×4, 8MiB)）→
  * fetchPipeline（SSRF 四道闸 + 回退链已有实现）→ 映射 SeamWebFetchResult；
@@ -19,15 +21,20 @@ import { credFingerprint, resolveCreds } from '../creds/resolve.ts';
 import { fetchPipeline } from '../fetch/pipeline.ts';
 import { scrubText } from '../safety/scrub.ts';
 import { type EngineError, engineError, normalizeThrown } from './errors.ts';
+import { DEFAULT_FUSION_PARAMS, fuse } from './fusion.ts';
 import { extractHints } from './hints.ts';
 import { EngineRegistry } from './registry.ts';
 import { estimateBand, planSearch } from './router.ts';
 import type {
+  AttemptRecord,
+  ComplexityBand,
   ContentBudgets,
+  EngineSearchRequest,
   EngineTier,
   FetchMode,
   FetchRequest,
   FetchResult,
+  FusionParams,
   NormalizedHit,
   SeamWebFetchProvider,
   SeamWebFetchRequest,
@@ -44,6 +51,16 @@ const MAX_BYTES_CAP = 8 * 1024 * 1024;
 
 /** 错误体字符预算（进入上下文前再经 injection 截断转义）。 */
 const ERROR_CHARS = 2000;
+
+/**
+ * 复杂度档整体预算（毫秒）：多引擎融合腿共享一个总预算——medium 5s /
+ * complex 8s；simple 不设整体预算（单引擎，registry 自带 per-attempt 预算）。
+ * 快照 `bandBudgetMs` 可整体覆盖（测试与高级配置注入点）。
+ */
+export const BAND_BUDGET_MS: Readonly<Partial<Record<ComplexityBand, number>>> = Object.freeze({
+  medium: 5000,
+  complex: 8000,
+});
 
 /** 聚合器运行快照（W-B-74 起点）：操作起点解析，配置保存即时生效于下一次操作。 */
 export interface AggregatorSnapshot {
@@ -67,6 +84,14 @@ export interface AggregatorSnapshot {
   ssrfExempts: readonly string[];
   /** 搜索缓存开关。 */
   cacheEnabled: boolean;
+  /**
+   * 融合细参覆盖（半衰期/权威乘子/多样性折扣）；缺席字段回落
+   * {@link DEFAULT_FUSION_PARAMS}（与 settings schema `search.fusion.*`
+   * 默认值对齐）。
+   */
+  readonly fusionParams?: Partial<Omit<FusionParams, 'enabled'>>;
+  /** 复杂度档预算覆盖（毫秒）；缺席档位回落 {@link BAND_BUDGET_MS}。 */
+  readonly bandBudgetMs?: Partial<Record<ComplexityBand, number>>;
 }
 
 /** 构造依赖：注册表与缓存可注入（测试假引擎注入点）；缺省自建空实例。 */
@@ -173,9 +198,11 @@ export class WebstackAggregator implements SeamWebSearchProvider, SeamWebFetchPr
           band,
           ...(signal === undefined ? {} : { signal }),
         };
-        const response = await this.registry.runWithFallback(req, engineSet);
-        const fused = fuseHits(response.hits, plan.fusion);
-        const trimmed = fused.slice(0, Math.max(0, count));
+        const useFusion = plan.fusion && engineSet.length > 1;
+        const resultHits: readonly NormalizedHit[] = useFusion
+          ? fuse((await this.runFusedLegs(req, engineSet)).sets, this.fusionParamsSnapshot())
+          : (await this.registry.runWithFallback(req, engineSet)).hits;
+        const trimmed = resultHits.slice(0, Math.max(0, count));
         if (this.snapshot.cacheEnabled && trimmed.length > 0) {
           await this.cache.set('search', cacheKey, trimmed);
         }
@@ -257,81 +284,160 @@ export class WebstackAggregator implements SeamWebSearchProvider, SeamWebFetchPr
       ...(err.detail === undefined ? {} : { detail: err.detail }),
     });
   }
-}
 
-// ---------------------------------------------------------------------------
-// 融合与映射辅助（纯函数）
-// ---------------------------------------------------------------------------
-
-/** RRF 常数 k：排名倒数加权的平滑项（轻量融合固定值）。 */
-export const RRF_K = 60;
-
-/**
- * RRF 轻量融合：每引擎排名倒数加权 Σ 1/(k+rank)。同 URL 去重——保留组内
- * 排名最高者的 title/snippet/publishedAt/provenance，但 `url` 字段恒取首见
- * 原样字符串（W-B-35：身份归一只发生在比较内部，不改写表示）。
- * 单来源引擎直出时原样返回，不写归一化分；多来源时 provenance.score 写
- * 归一化分（组最高分为 1）。
- */
-export function fuseHits(hits: readonly NormalizedHit[], fusion: boolean): NormalizedHit[] {
-  if (!fusion || hits.length <= 1) return [...hits];
-  const engines = new Set(hits.map((hit) => hit.provenance.engine));
-  if (engines.size <= 1) return [...hits];
-
-  interface Group {
-    firstUrl: string;
-    best: NormalizedHit;
-    bestRank: number;
-    score: number;
-    order: number;
+  /**
+   * 操作起点融合参数：快照覆盖 → 缺省对齐（schema `search.fusion.*` 默认值）；
+   * `enabled` 以快照总开关为准（router 已据此决定 plan.fusion）。
+   */
+  private fusionParamsSnapshot(): FusionParams {
+    return {
+      ...DEFAULT_FUSION_PARAMS,
+      ...this.snapshot.fusionParams,
+      enabled: this.snapshot.fusionEnabled,
+    };
   }
-  const groups = new Map<string, Group>();
-  const perEngineRank = new Map<string, number>();
-  for (let index = 0; index < hits.length; index++) {
-    const hit = hits[index] as NormalizedHit;
-    const engineId = hit.provenance.engine;
-    const rank = (perEngineRank.get(engineId) ?? 0) + 1;
-    perEngineRank.set(engineId, rank);
-    const contribution = 1 / (RRF_K + rank);
-    const identity = identityOf(hit.url);
-    const existing = groups.get(identity);
-    if (existing !== undefined) {
-      existing.score += contribution;
-      if (rank < existing.bestRank) {
-        existing.best = hit;
-        existing.bestRank = rank;
+
+  /**
+   * 并发跑全部计划引擎（每腿独立 runWithFallback 单候选链），共享一个
+   * 复杂度档整体预算：预算到点未归的慢腿记 attempts 'aborted' 被裁掉，
+   * 已返回的部分结果照常参与融合（allSettled 语义 + AbortSignal 真取消——
+   * 预算信号经 AbortSignal.any 下推进引擎请求，真取消底层外呼）。
+   *
+   * 结算语义：
+   * - caller signal 中止 → 抛 aborted（terminal，整场立即结算，W-B-42）；
+   * - 全部腿零命中且存在失败 → 抛首个失败错误（错误如实上呈）；
+   * - 全部腿零命中且全部成功 → 返回空结果集（合法空页 ≠ 故障）；
+   * - 其余 → 部分结果 + 裁腿审计。
+   */
+  private async runFusedLegs(
+    req: EngineSearchRequest,
+    engineIds: readonly string[],
+  ): Promise<FusedLegsResult> {
+    const budgetMs = this.snapshot.bandBudgetMs?.[req.band] ?? BAND_BUDGET_MS[req.band];
+    const budgetSignal = budgetMs === undefined ? undefined : AbortSignal.timeout(budgetMs);
+    const parts: AbortSignal[] = [];
+    if (req.signal !== undefined) parts.push(req.signal);
+    if (budgetSignal !== undefined) parts.push(budgetSignal);
+    const legSignal =
+      parts.length === 0 ? undefined : parts.length === 1 ? parts[0] : AbortSignal.any(parts);
+    const legReq: EngineSearchRequest = {
+      ...req,
+      ...(legSignal === undefined ? {} : { signal: legSignal }),
+    };
+
+    // Promise.allSettled 语义：任一腿的成败不传染其它腿；runLeg 本身永不 reject。
+    const settled = await Promise.allSettled(
+      engineIds.map(async (id) => await this.runLeg(legReq, id, budgetSignal)),
+    );
+    const outcomes: LegOutcome[] = settled.flatMap((entry) =>
+      entry.status === 'fulfilled' ? [entry.value] : [],
+    );
+
+    const byId = new Map(outcomes.map((outcome) => [outcome.id, outcome]));
+    const result: FusedLegsResult = { sets: [], attempts: [], trimmedLegs: 0 };
+    const failures: EngineError[] = [];
+    for (const id of engineIds) {
+      const outcome = byId.get(id);
+      if (outcome === undefined) continue;
+      if (outcome.ok) {
+        result.sets.push([...outcome.res.hits]);
+        result.attempts.push(...outcome.res.attempts);
+        continue;
       }
-      continue;
+      result.attempts.push({
+        engineId: outcome.id,
+        startedAt: outcome.startedAt,
+        durationMs: Math.max(0, Date.now() - outcome.startedAt),
+        outcome: outcome.error.code,
+      });
+      failures.push(outcome.error);
+      if (outcome.error.code === 'aborted') result.trimmedLegs++;
     }
-    groups.set(identity, {
-      firstUrl: hit.url,
-      best: hit,
-      bestRank: rank,
-      score: contribution,
-      order: index,
+
+    if (req.signal?.aborted) {
+      throw engineError('aborted', 'caller aborted during fused search', {});
+    }
+    const anyHits = result.sets.some((set) => set.length > 0);
+    if (!anyHits && failures.length > 0) throw failures[0] as EngineError;
+    return result;
+  }
+
+  /**
+   * 单条融合腿：预算到点仍未归即以 aborted 结算该腿（底层 promise 的迟到
+   * 结算被吞掉，绝不产生 unhandled rejection）；caller-abort 由引擎自然抛出、
+   * 经 normalizeThrown 归一为闭集码。
+   */
+  private async runLeg(
+    req: EngineSearchRequest,
+    id: string,
+    budgetSignal: AbortSignal | undefined,
+  ): Promise<LegOutcome> {
+    const startedAt = Date.now();
+    const inner = this.registry.runWithFallback(req, [id]).then(
+      (res): LegOutcome => ({ ok: true, id, startedAt, res }),
+      (thrown: unknown): LegOutcome => ({
+        ok: false,
+        id,
+        startedAt,
+        error: normalizeThrown(thrown, id),
+      }),
+    );
+    if (budgetSignal === undefined) return await inner;
+    return await new Promise<LegOutcome>((resolve) => {
+      let done = false;
+      const finish = (value: LegOutcome): void => {
+        if (done) return;
+        done = true;
+        resolve(value);
+      };
+      void inner.then(finish); // inner 恒 resolve（成败都走值通道）
+      budgetSignal.addEventListener(
+        'abort',
+        () =>
+          finish({
+            ok: false,
+            id,
+            startedAt,
+            error: engineError('aborted', 'complexity band budget exceeded', {
+              engineId: id,
+              detail: 'band-budget',
+            }),
+          }),
+        { once: true },
+      );
     });
   }
-
-  const ordered = [...groups.values()].toSorted((a, b) => b.score - a.score || a.order - b.order);
-  const maxScore = ordered[0]?.score ?? 1;
-  return ordered.map((group) => {
-    const normalized = maxScore > 0 ? group.score / maxScore : group.score;
-    const base = group.best;
-    return {
-      ...base,
-      url: group.firstUrl,
-      provenance: { ...base.provenance, score: Number(normalized.toFixed(6)) },
-    };
-  });
 }
 
-/** URL 身份键：可解析则用规范化 href 比较，不可解析退回原样字符串。 */
-function identityOf(url: string): string {
-  try {
-    return new URL(url).href;
-  } catch {
-    return url;
-  }
+// ---------------------------------------------------------------------------
+// 多引擎融合腿（复杂度档整体预算 race）与映射辅助
+// ---------------------------------------------------------------------------
+
+/** 单条融合腿的结算结果（runLeg 永不 reject，失败也走值通道）。 */
+type LegOutcome =
+  | {
+      readonly ok: true;
+      readonly id: string;
+      readonly startedAt: number;
+      readonly res: {
+        readonly hits: readonly NormalizedHit[];
+        readonly attempts: readonly AttemptRecord[];
+      };
+    }
+  | {
+      readonly ok: false;
+      readonly id: string;
+      readonly startedAt: number;
+      readonly error: EngineError;
+    };
+
+/** 融合腿集合结算：按计划序的结果集与审计轨迹。 */
+interface FusedLegsResult {
+  /** 每腿一个结果集（保持计划引擎序，空集保留占位）。 */
+  sets: NormalizedHit[][];
+  attempts: AttemptRecord[];
+  /** 因预算超时被裁掉的慢腿数。 */
+  trimmedLegs: number;
 }
 
 /** NormalizedHit[] 形状守卫（缓存读出的 unknown 收窄）。 */
