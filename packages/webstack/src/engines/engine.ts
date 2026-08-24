@@ -13,7 +13,7 @@
  * @module webstack/engines/engine
  */
 
-import { engineError, normalizeThrown } from '../kernel/errors.ts';
+import { type EngineError, engineError, normalizeThrown } from '../kernel/errors.ts';
 import type {
   AttemptRecord,
   EngineDescriptor,
@@ -21,6 +21,7 @@ import type {
   EngineSearchResponse,
   NormalizedHit,
 } from '../kernel/types.ts';
+import { retryAfterMsFromHeaders } from './pool.ts';
 
 /** 免费池引擎 id 固定顺序（探针准入后的公示顺序与此一致）。 */
 export const FREE_POOL_ENGINE_IDS = ['ddg', 'bing-lite', 'searxng'] as const;
@@ -281,4 +282,76 @@ export abstract class BaseEngine {
     };
     return { hits: stamped, attempts: [this.lastAttemptRecord] };
   }
+}
+
+// ---------------------------------------------------------------------------
+// keyed 引擎共享辅助（追加面：只新增导出，不触碰上文任何既有行为）
+// ---------------------------------------------------------------------------
+
+/** keyed 引擎 id 固定顺序（与设置面 `engines.<id>` 配置键一一对应）。 */
+export const KEYED_ENGINE_IDS = [
+  'tavily',
+  'brave',
+  'exa',
+  'jina',
+  'firecrawl',
+  'anysearch',
+] as const;
+
+/**
+ * 从请求级凭据通道取本引擎密钥（W-B-55 的引擎侧唯一入口）：缺席或空串一律抛
+ * auth——keyed 引擎没有「匿名降级」，缺键即结构化失败，交聚合器换候选引擎。
+ * 密钥只进请求头，绝不拼入 URL、绝不落日志（调用方契约由 types.ts 锁定）。
+ */
+export function requireCredential(
+  req: EngineSearchRequest,
+  engineId: string,
+  credSlot: string,
+): string {
+  const secret = req.credentials?.[credSlot];
+  if (secret === undefined || secret === '') {
+    throw engineError('auth', `${engineId} requires credential "${credSlot}"`, { engineId });
+  }
+  return secret;
+}
+
+/**
+ * keyed 上游 HTTP 状态 → 统一错误（W-B-40 映射表）：429 → rate-limited
+ * （Retry-After 头换算 retryAfterMs，HTTP-date 形态不做时钟猜测）、
+ * 401/403 → auth（键之过，交键池冷却）、其余 ≥400 → http-upstream。
+ * 状态 <400 时不应调用本函数（非 2xx 的 3xx 已被出站层复验消化）。
+ */
+export function keyedHttpStatusError(
+  engineId: string,
+  status: number,
+  headers: Readonly<Record<string, string>> = {},
+): EngineError {
+  if (status === 429) {
+    const retryAfterMs = retryAfterMsFromHeaders(headers);
+    return engineError('rate-limited', `${engineId} upstream status ${status}`, {
+      engineId,
+      httpStatus: status,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    });
+  }
+  if (status === 401 || status === 403) {
+    return engineError('auth', `${engineId} rejected credential (http ${status})`, {
+      engineId,
+      httpStatus: status,
+    });
+  }
+  return engineError('http-upstream', `${engineId} upstream status ${status}`, {
+    engineId,
+    httpStatus: status,
+  });
+}
+
+/**
+ * 在统一出站请求上挂 POST JSON 体（与 pool.HTTP_POST_BRIDGED 同款桥接思路：
+ * OutboundRequest 契约的 body 位尚未开放，先以运行期扩展位承载序列化载荷；
+ * 集成侧放宽契约后此处收编为正式字段，六个 keyed 适配器零 diff 切换）。
+ */
+export function attachPostBody(req: OutboundRequest, payload: unknown): OutboundRequest {
+  (req as { body?: string }).body = JSON.stringify(payload);
+  return req;
 }

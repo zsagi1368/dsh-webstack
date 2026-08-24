@@ -583,49 +583,65 @@ export interface HostSeams {
 
 /** 融合参数（F-104/W-B-16）：与 settings schema 的 fusion 段一一对应。 */
 export interface FusionParams {
-  readonly enabled: boolean
+  readonly enabled: boolean;
   /** 时效半衰期（小时）；0 = 关闭时效衰减。 */
-  readonly timeDecayHalfLifeH: number
+  readonly timeDecayHalfLifeH: number;
   /** 权威域加权系数（≥0，1 = 不加权）。 */
-  readonly authorityBoost: number
+  readonly authorityBoost: number;
   /** 同域/单源多样性软折扣（0–1，1 = 不折扣）。 */
-  readonly diversityDiscount: number
+  readonly diversityDiscount: number;
 }
 
 /** MCP 服务器条目（F-108）：预设目录承载样板、用户条目只存差异（W-B-72）。 */
 export interface McpServerEntry {
-  readonly id: string
-  readonly transport: 'stdio' | 'http'
+  readonly id: string;
+  readonly transport: 'stdio' | 'http';
   /** stdio 启动命令；必须含 `@version` 锁定形态，裸 npx 在校验层拒绝（W-A-02）。 */
-  readonly command?: string
-  readonly args?: readonly string[]
-  readonly url?: string
+  readonly command?: string;
+  readonly args?: readonly string[];
+  readonly url?: string;
   /** 凭据引用名列表（经 credentials 域每操作解析，绝不存明文）。 */
-  readonly credentialRefs?: readonly string[]
-  readonly env?: Readonly<Record<string, string>>
+  readonly credentialRefs?: readonly string[];
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /** 批量扇出单条结果（F-113/W-B-20）：保序、逐项结构化，部分失败不传染。 */
 export type BatchSearchItem =
-  | { readonly index: number; readonly query: string; readonly ok: true; readonly hits: readonly NormalizedHit[]; readonly attempts: readonly AttemptRecord[] }
-  | { readonly index: number; readonly query: string; readonly ok: false; readonly code: EngineErrorCode; readonly message: string }
+  | {
+      readonly index: number;
+      readonly query: string;
+      readonly ok: true;
+      readonly hits: readonly NormalizedHit[];
+      readonly attempts: readonly AttemptRecord[];
+    }
+  | {
+      readonly index: number;
+      readonly query: string;
+      readonly ok: false;
+      readonly code: EngineErrorCode;
+      readonly message: string;
+    };
 
 /** 历史回放条目（F-205/pro B-13）：搜索回放来源列表、抓取回放状态与截断标志。 */
 export interface HistoryEntry {
-  readonly kind: 'search' | 'fetch'
-  readonly at: number
-  readonly input: string
-  readonly layer?: SearchLayer
-  readonly statusCode?: number
-  readonly sources: readonly { url: string; title?: string }[]
-  readonly truncated?: boolean
+  readonly kind: 'search' | 'fetch';
+  readonly at: number;
+  readonly input: string;
+  readonly layer?: SearchLayer;
+  readonly statusCode?: number;
+  readonly sources: readonly { url: string; title?: string }[];
+  readonly truncated?: boolean;
 }
 
 /** 站选定制源规则（F-203/pro B-11）：只到 CSS 选择器粒度，杜绝任意脚本注入面。 */
 export interface SelectorRule {
   /** hostname 最长后缀匹配（如 `example.com` 命中 `a.b.example.com`）。 */
-  readonly hostSuffix: string
-  readonly selectors: { readonly title?: string; readonly content: string; readonly publishedAt?: string }
+  readonly hostSuffix: string;
+  readonly selectors: {
+    readonly title?: string;
+    readonly content: string;
+    readonly publishedAt?: string;
+  };
 }
 
 /**
@@ -633,5 +649,8 @@ export interface SelectorRule {
  * 协议细节全部留在卫星（W-B-05 消费侧解耦）。返回 undefined = 桥当前不可用。
  */
 export interface SeamBridgeRuntime {
-  render(url: string, timeoutMs: number): Promise<{ content: string; statusCode: number } | undefined>
+  render(
+    url: string,
+    timeoutMs: number,
+  ): Promise<{ content: string; statusCode: number } | undefined>;
 }
