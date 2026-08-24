@@ -121,6 +121,14 @@ export interface EngineSearchRequest {
   readonly band: ComplexityBand;
   /** 取消信号：caller-abort 必须真取消底层请求（W-B-42）。 */
   readonly signal?: AbortSignal;
+  /**
+   * 聚合器从凭据快照注入的明文键值（键 = 引擎约定字段名，值 = 明文密钥）。
+   * 仅限本次请求生命周期，随请求对象一同消亡；**禁止日志化、禁止序列化进
+   * 缓存/快照/模型上下文、禁止拼入 URL query（只允许经请求头下发）**
+   * （W-B-55 密钥不出 Host 进程的请求内延伸）。keyed 引擎适配器可自主选择
+   * 消费本通道或走内部 KeyPool；缺席 = 由引擎自取（W-B-41）。
+   */
+  readonly credentials?: Readonly<Record<string, string>>;
 }
 
 /**

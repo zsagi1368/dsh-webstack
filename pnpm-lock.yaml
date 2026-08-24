@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  packages/webstack:
     dependencies:
       '@deepseek-ai/dsh-credentials':
         specifier: '>=0.1.0-rc.2 <0.2.0'
