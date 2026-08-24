@@ -91,6 +91,25 @@ query
 
 抓取操作走同一条出站通道：预算派生（canonical = min(maxContentChars×4, 8 MiB)）→ SSRF 四道闸 → 有界读体 → 抽取回退链（raw→fit）→ 「状态即数据」上呈。
 
+## 设置面板
+
+客户端半（`dsh-webstack/client`，构建产物 `lib/client.js`，经 ModuleLoader 握手注入 Web GUI）提供两块浏览器面：
+
+**设置卡（Settings → Plugins，keyed slot `settings.plugin.item`，key = `webstack`）**
+编辑字段与宿主设置 schema 对齐：总开关、默认路由层、结果条数上限（1–50）、候选展开、fusion 三参（timeDecayHalfLifeH / authorityBoost / diversityDiscount）、抓取字符上限、SSRF 豁免清单（每行一条 `host:port`）。所有改动先进暂存草稿状态机（clean / dirty / invalid / saving / failed 五态），校验通过才允许保存，保存按点路径逐条排队写入；引擎 `apiKey`/`credentialRef` 不在卡片编辑面内，密钥永不进入浏览器渲染树。
+
+达成层级（降级梯）：
+
+1. 宿主暴露可写的 `settingsScope` 服务 → 暂存草稿可编辑并落宿主设置文档；
+2. `settingsScope` 可达但不可写（memory 模式等）→ 只读展示生效值；
+3. `settingsScope` 不可达（当前版本即此形态：类型与服务面所在的
+   dsh-client-ui-settings 系列未随插件分发）→ 以内置默认值为基线的只读展示卡，
+   并在卡面注明改用配置档 `webstack:` 段修改。
+
+**联网模式按钮（composer 工具行左端，列表槽 `conversation.input.left`）**
+
+会话级三态循环 off → on → ask（对应 `mode.sessionOnline`）。`settingsScope` 可写时点击同步落宿主文档；不可达时退化为会话内本地态（刷新还原），按钮提示注明。
+
 ## Roadmap TODO
 
 - native delegate 句柄捕获（接管档），让 `native` 层转发到宿主内置 provider。
