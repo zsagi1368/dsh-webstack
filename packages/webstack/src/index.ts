@@ -37,6 +37,9 @@ export { deriveTierMode, probeCapabilities } from './kernel/capability.ts';
 export { EngineRegistry } from './kernel/registry.ts';
 export { WEBSTACK_PROVIDER_ID } from './kernel/types.ts';
 export { charterSection, statusSection } from './prompt/sections.ts';
+// 卫星包（dsh-webstack-bridge）经此复用 SSRF G1+G2 闸：装配层动态导入本入口
+// 后注入 BridgeRenderer，避免卫星对 src/safety/ssrf 的深路径耦合（W-B-05）。
+export { checkTarget } from './safety/ssrf.ts';
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'webstack';
