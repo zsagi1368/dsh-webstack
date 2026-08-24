@@ -13,9 +13,16 @@
 
 import { fetchSafetyText, formatStatusPrefix } from '../i18n/fetch-safety.ts';
 import { engineError } from '../kernel/errors.ts';
-import type { ContentBudgets, FetchMode, FetchRequest, FetchResult } from '../kernel/types.ts';
+import type {
+  ContentBudgets,
+  FetchMode,
+  FetchRequest,
+  FetchResult,
+  SelectorRule,
+} from '../kernel/types.ts';
 import { renderExtract } from './extract.ts';
 import { parseJsonLoose } from './narrowing.ts';
+import { applySelectorRules, matchRule } from './selectors.ts';
 
 /** 管线档位闭集（配置 `fetch.pipeline` 的合法值）。 */
 export const PIPELINE_TIERS = ['t1', 't1+t2', 't1+t2+t3'] as const;
@@ -104,7 +111,49 @@ function truncateBudget(
 }
 
 /**
+ * 规则抽取优先段（F-203/pro B-11）：装配层注入 rulesGetter 时，抓取入口在
+ * 窄化前按 finalUrl 的 host 查站选规则；命中即优先走选择器抽取。getter 抛
+ * 错、host 不可解析、规则未命中、选择器抽空——任一情况都返回 undefined
+ * 落回原链路，绝不致命。命中产出以 `fit` 模式上呈（mode = 实际达成形态）。
+ */
+function ruleExtract(
+  html: string,
+  finalUrl: string,
+  budgets: ContentBudgets,
+  rulesGetter: (() => readonly SelectorRule[]) | undefined,
+): { text: string; mode: FetchMode; truncated: boolean } | undefined {
+  if (rulesGetter === undefined) return undefined;
+  let rules: readonly SelectorRule[];
+  try {
+    rules = rulesGetter();
+  } catch {
+    return undefined;
+  }
+  if (rules.length === 0) return undefined;
+  let host = '';
+  try {
+    host = new URL(finalUrl).hostname;
+  } catch {
+    return undefined;
+  }
+  const rule = matchRule(rules, host);
+  if (rule === undefined) return undefined;
+  let applied: { title?: string; content: string; truncated: boolean };
+  try {
+    applied = applySelectorRules(html, rule, budgets);
+  } catch {
+    return undefined;
+  }
+  if (applied.content === '') return undefined;
+  const text =
+    applied.title === undefined ? applied.content : `${applied.title}\n${applied.content}`;
+  return { text, mode: 'fit', truncated: applied.truncated };
+}
+
+/**
  * 抓取管线主入口：
+ * 0. 注入了 rulesGetter 且 finalUrl host 命中站选规则 → 优先按选择器抽取
+ *    （mode 记 fit）；未命中或抽空一律落回默认回退链；
  * 1. 动态探测出站客户端（未接线 → transport，detail todo-w2-safety）；
  * 2. maxBytes = min(budgets.canonicalChars × 4, 8 MiB) 发起有界抓取；
  * 3. Content-Type 含 json 且解析成功 → pretty-print（mode 记 raw）；解析失败
@@ -116,11 +165,15 @@ function truncateBudget(
  * 管道自身故障（transport/aborted/ssrf-blocked）原样透传 throw，不吞不改。
  *
  * @param req 引擎层抓取请求（url/mode/budgets/signal）。
- * @param opts 转发给出站客户端的可选项（如 SSRF 豁免清单，语义归安全侧）。
+ * @param opts 转发给出站客户端的可选项（如 SSRF 豁免清单，语义归安全侧）；
+ *   `rulesGetter` 为站选规则的构造参数注入口（F-203），缺席 = 行为与旧版一致。
  */
 export async function fetchPipeline(
   req: FetchRequest,
-  opts?: { exemptions?: readonly string[] },
+  opts?: {
+    exemptions?: readonly string[];
+    rulesGetter?: () => readonly SelectorRule[];
+  },
 ): Promise<FetchResult> {
   const outboundFetch = await loadOutboundFetch();
   const maxBytes = Math.min(req.budgets.canonicalChars * 4, MAX_BYTES_CAP);
@@ -133,10 +186,14 @@ export async function fetchPipeline(
   const res = await outboundFetch(outboundReq, opts);
   const rawText = await res.text();
 
-  // 视图组装：显式声明 JSON 且可解析 → 格式化文本（mode 记 raw）；否则走
-  // renderExtract 回退链（首选模式抽空时 raw→fit 有内容者胜）。
+  // 视图组装：站选规则命中 → 选择器抽取优先；否则显式声明 JSON 且可解析 →
+  // 格式化文本（mode 记 raw）；再否则走 renderExtract 回退链（首选模式抽空
+  // 时 raw→fit 有内容者胜）。
+  const ruled = ruleExtract(rawText, res.finalUrl, req.budgets, opts?.rulesGetter);
   let view: { text: string; mode: FetchMode; truncated: boolean };
-  if (contentTypeOf(res.headers).toLowerCase().includes('json')) {
+  if (ruled !== undefined) {
+    view = ruled;
+  } else if (contentTypeOf(res.headers).toLowerCase().includes('json')) {
     const parsed = parseJsonLoose(rawText);
     view = parsed.ok
       ? {

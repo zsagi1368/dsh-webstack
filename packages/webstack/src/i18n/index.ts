@@ -24,6 +24,7 @@ import {
   fetchSafetyBlockedEn,
   fetchSafetyBlockedZh,
 } from './fetch-safety.ts';
+import { type VerticalsI18nKey, verticalsMessagesEn, verticalsMessagesZh } from './verticals.ts';
 import { type ErrorI18nKey, errorMessagesZh } from './zh.ts';
 
 export type {
@@ -33,6 +34,7 @@ export type {
   ErrorI18nKey,
   FetchSafetyBlockedKey,
   FetchSafetyKey,
+  VerticalsI18nKey,
 };
 export type Locale = 'zh' | 'en';
 
@@ -43,7 +45,8 @@ export type WebstackI18nKey =
   | CacheCredsI18nKey
   | FetchSafetyKey
   | FetchSafetyBlockedKey
-  | DoctorI18nKey;
+  | DoctorI18nKey
+  | VerticalsI18nKey;
 
 /** 中文统一查找表（对象展开一次性合并；键冲突会在测试奇偶断言中暴露）。 */
 const TABLE_ZH: Readonly<Record<WebstackI18nKey, string>> = Object.freeze({
@@ -53,6 +56,7 @@ const TABLE_ZH: Readonly<Record<WebstackI18nKey, string>> = Object.freeze({
   ...fetchMessagesZh,
   ...fetchSafetyBlockedZh,
   ...doctorMessagesZh,
+  ...verticalsMessagesZh,
 });
 
 /** English unified lookup table. */
@@ -63,6 +67,7 @@ const TABLE_EN: Readonly<Record<WebstackI18nKey, string>> = Object.freeze({
   ...fetchMessagesEn,
   ...fetchSafetyBlockedEn,
   ...doctorMessagesEn,
+  ...verticalsMessagesEn,
 });
 
 /**

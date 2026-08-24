@@ -37,8 +37,23 @@ export const EXA_ENGINE_ID = 'exa';
 /** 凭据槽位名：请求级 credentials 通道与本引擎约定的字段键。 */
 export const EXA_CRED_SLOT = 'exaKey';
 
-/** 端点基址（POST JSON 体语义）。 */
-const EXA_ENDPOINT = 'https://api.exa.ai/search';
+/** 端点源基址（官方默认；实际请求端点 = `<baseUrl>/search`）。 */
+export const EXA_ENDPOINT = 'https://api.exa.ai';
+
+/** 搜索路径段（POST JSON 体语义）。 */
+const EXA_SEARCH_PATH = '/search';
+
+/**
+ * 解析 Exa 搜索端点（纯函数）：缺省回官方 `https://api.exa.ai/search`；
+ * 第三方 exa-compatible shim 可经构造选项注入自定义 baseUrl 覆盖源
+ * （F-204 消费侧），尾部斜杠归一化后统一拼接 `/search`。
+ */
+export function resolveExaEndpoint(baseUrl?: string): string {
+  const trimmed = baseUrl?.trim();
+  const origin =
+    trimmed !== undefined && trimmed !== '' ? `${trimmed.replace(/\/+$/, '')}` : EXA_ENDPOINT;
+  return `${origin}${EXA_SEARCH_PATH}`;
+}
 
 /** G4 有界响应体上限：JSON 结果集适中，1MB 封顶。 */
 export const EXA_MAX_BYTES = 1_000_000;
@@ -93,8 +108,15 @@ export function parseExaJson(value: unknown, count: number): NormalizedHit[] {
 
 /** Exa keyed 引擎适配器。 */
 export class ExaEngine extends BaseEngine {
-  constructor(descriptor: EngineDescriptor = EXA_DESCRIPTOR) {
+  /** 覆盖端点源（构造选项注入；undefined = 官方默认）。 */
+  private readonly baseUrl: string | undefined;
+
+  constructor(
+    descriptor: EngineDescriptor = EXA_DESCRIPTOR,
+    options?: { readonly baseUrl?: string },
+  ) {
     super(descriptor);
+    this.baseUrl = options?.baseUrl;
   }
 
   /** 搜索：缺密钥即 auth（不打网）；出站必经安全管道；JSON 解析失败转 narrow-failed。 */
@@ -103,7 +125,7 @@ export class ExaEngine extends BaseEngine {
       const apiKey = requireCredential(req, this.descriptor.id, EXA_CRED_SLOT);
       const { outboundFetch, parseJsonLoose } = await this.pipeline();
       const outboundReq: OutboundRequest = {
-        url: EXA_ENDPOINT,
+        url: resolveExaEndpoint(this.baseUrl),
         method: HTTP_POST_BRIDGED,
         headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' },
         ...(req.signal !== undefined ? { signal: req.signal } : {}),

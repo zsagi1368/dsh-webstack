@@ -242,6 +242,65 @@ describe('fetchPipeline', () => {
   });
 });
 
+describe('fetchPipeline × 站选选择器规则（F-203 接线）', () => {
+  it('host 命中规则 → 窄化前优先按选择器抽取（mode 记 fit），噪声不混入', async () => {
+    outboundMock.impl = fakeOutbound({
+      status: 200,
+      finalUrl: 'https://docs.example.com/post/1',
+      headers: { 'content-type': 'text/html' },
+      body:
+        '<html><body><nav>导航噪声</nav>' +
+        '<div class="article-body"><h2>规则标题</h2><p>规则抽取的正文段落，内容完整。</p></div>' +
+        '</body></html>',
+    });
+    const out = await fetchPipeline(mkReq({ mode: 'raw' }), {
+      rulesGetter: () => [
+        { hostSuffix: 'example.com', selectors: { title: 'h2', content: 'div.article-body' } },
+      ],
+    });
+    expect(out.mode).toBe('fit');
+    expect(out.content.startsWith('规则标题\n')).toBe(true);
+    expect(out.content).toContain('规则抽取的正文段落');
+    expect(out.content).not.toContain('导航噪声');
+    expect(out.truncated).toBe(false);
+  });
+
+  it('未命中回退：host 不匹配 / 选择器抽空 / getter 抛错 → 一律落默认链路且不致命', async () => {
+    const body = `<article><p>${'默认管线的可读正文。'.repeat(30)}</p></article>`;
+    const init = {
+      status: 200,
+      finalUrl: 'https://origin.example/a',
+      headers: { 'content-type': 'text/html' },
+      body,
+    };
+    // host 不在规则表内
+    outboundMock.impl = fakeOutbound(init);
+    const missHost = await fetchPipeline(mkReq({ mode: 'fit' }), {
+      rulesGetter: () => [{ hostSuffix: 'other.org', selectors: { content: 'div.main' } }],
+    });
+    expect(missHost.mode).toBe('fit');
+    expect(missHost.content).toContain('默认管线的可读正文');
+    // host 命中但选择器抽空
+    outboundMock.impl = fakeOutbound(init);
+    const missSelector = await fetchPipeline(mkReq({ mode: 'raw' }), {
+      rulesGetter: () => [
+        { hostSuffix: 'origin.example', selectors: { content: '.no-such-node' } },
+      ],
+    });
+    expect(missSelector.mode).toBe('raw');
+    expect(missSelector.content).toContain('默认管线的可读正文');
+    // getter 自身抛错同样安全回落
+    outboundMock.impl = fakeOutbound(init);
+    const getterThrew = await fetchPipeline(mkReq({ mode: 'fit' }), {
+      rulesGetter: () => {
+        throw new Error('snapshot unavailable');
+      },
+    });
+    expect(getterThrew.mode).toBe('fit');
+    expect(getterThrew.content).toContain('默认管线的可读正文');
+  });
+});
+
 describe('i18n fetch-safety 双语键', () => {
   it('zh/en 键集奇偶一致；%s 占位符只替换一次', () => {
     expect(Object.keys(fetchMessagesZh).sort()).toEqual(Object.keys(fetchMessagesEn).sort());

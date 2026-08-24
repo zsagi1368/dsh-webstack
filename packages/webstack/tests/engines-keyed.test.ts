@@ -38,6 +38,7 @@ import {
   EXA_DESCRIPTOR,
   ExaEngine,
   parseExaJson,
+  resolveExaEndpoint,
 } from '../src/engines/exa.ts';
 import {
   buildFirecrawlPayload,
@@ -520,6 +521,34 @@ describe('Exa', () => {
     expect(parseExaJson(FIXTURE, 0)).toEqual([]);
     expect(parseExaJson('x', 5)).toEqual([]);
     expect(parseExaJson({ results: null }, 5)).toEqual([]);
+  });
+
+  it('resolveExaEndpoint：默认官方端点；自定义 baseUrl 归一化拼接 /search（F-204）', () => {
+    expect(resolveExaEndpoint()).toBe('https://api.exa.ai/search');
+    expect(resolveExaEndpoint(undefined)).toBe('https://api.exa.ai/search');
+    expect(resolveExaEndpoint('')).toBe('https://api.exa.ai/search');
+    expect(resolveExaEndpoint('https://shim.example/v1')).toBe('https://shim.example/v1/search');
+    expect(resolveExaEndpoint('https://shim.example/v1///')).toBe('https://shim.example/v1/search');
+  });
+
+  it('构造注入 baseUrl → 出站 URL 指认 exa-compatible shim 端点', async () => {
+    await runWithStub(() => undefined);
+    const fetchMock = stubFetch(
+      () =>
+        new Response(JSON.stringify({ results: [{ title: 'Shim', url: 'https://s.example/1' }] }), {
+          status: 200,
+        }),
+    );
+    try {
+      const engine = new ExaEngine(EXA_DESCRIPTOR, { baseUrl: 'https://shim.example/v1/' });
+      const response = await engine.search(makeReq());
+      expect(response.hits.length).toBe(1);
+      expect(firstUrl(fetchMock)).toBe('https://shim.example/v1/search');
+      expect(fetchMock.mock.calls[0]?.[1]?.method).toBe('POST');
+      expect(firstHeaders(fetchMock)['x-api-key']).toBe('exa-test');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('管道回放：POST + x-api-key 头 → hits/attempts ok', async () => {

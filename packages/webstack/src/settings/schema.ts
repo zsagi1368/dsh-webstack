@@ -10,7 +10,7 @@
  * @module webstack/settings/schema
  */
 
-import type { FetchMode, SearchLayer, SessionOnlineMode } from '../kernel/types.ts';
+import type { FetchMode, SearchLayer, SelectorRule, SessionOnlineMode } from '../kernel/types.ts';
 
 /** 单引擎设置节点（`engines.<id>`）。缺字段 = 用全局默认。 */
 export interface EngineNodeSettings {
@@ -67,7 +67,14 @@ export const DEFAULT_SETTINGS = Object.freeze({
   /** 启用的 MCP server 名单；增删需重载插件。 */
   mcpServers: [] as string[],
   verticals: {
+    /** 垂直卫星包总闸（实验性）：默认关闭，须用户显式开启。 */
     packEnabled: false,
+    /** 逐频道开关：全部默认关闭，且受 packEnabled 总闸约束。 */
+    channels: {
+      x: false,
+    },
+    /** 站选定制源规则（F-203）：抓取入口 host 最长后缀命中后优先选择器抽取。 */
+    selectorRules: [] as SelectorRule[],
   },
   advanced: {
     /** hints 提取词表语言：'auto' 跟随查询语言，或固定 'zh'/'en'。 */
@@ -98,5 +105,7 @@ export const HOT_RELOADABLE: Readonly<Record<string, boolean>> = Object.freeze({
   engines: false,
   mcpServers: false,
   'verticals.packEnabled': true,
+  'verticals.channels.x': true,
+  'verticals.selectorRules': true,
   'advanced.hintsLocale': true,
 });
