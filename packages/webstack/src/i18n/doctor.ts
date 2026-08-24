@@ -17,6 +17,11 @@ export type DoctorI18nKey =
   | 'webstack.doctor.engine.unwired'
   | 'webstack.doctor.engine.last-code'
   | 'webstack.doctor.cache.stats'
+  | 'webstack.doctor.bridge.online'
+  | 'webstack.doctor.bridge.offline'
+  | 'webstack.doctor.vertical.on'
+  | 'webstack.doctor.vertical.off'
+  | 'webstack.doctor.vertical.pack-missing'
   | 'webstack.doctor.header';
 
 /** 语言闭包（与 src/i18n/index.ts 的 Locale 同形；就地声明避免反向依赖）。 */
@@ -37,6 +42,12 @@ export const doctorMessagesZh: Readonly<Record<DoctorI18nKey, string>> = Object.
   'webstack.doctor.engine.unwired': '[未接线] %s（已配置但未注册，重载插件）',
   'webstack.doctor.engine.last-code': '上次错误码 %s',
   'webstack.doctor.cache.stats': '缓存统计：命中 %s 次 / 未命中 %s 次 / 当前条目 %s 条',
+  'webstack.doctor.bridge.online': '浏览器桥接卫星：在线（T3 渲染兜底可用）。',
+  'webstack.doctor.bridge.offline': '浏览器桥接卫星：离线/未配对（抓取仅静态管线）。',
+  'webstack.doctor.vertical.on': '垂直频道（X）：已开启，命中触发词时加发垂直腿。',
+  'webstack.doctor.vertical.off': '垂直频道（X）：关闭（设置 verticals.channels.x 可开启）。',
+  'webstack.doctor.vertical.pack-missing':
+    '垂直频道（X）：已开启但卫星包 dsh-webstack-verticals 缺失，垂直腿将静默跳过；安装后重载即可启用。',
   'webstack.doctor.header': 'WebStack 引擎体检报告',
 });
 
@@ -60,6 +71,16 @@ export const doctorMessagesEn: Readonly<Record<DoctorI18nKey, string>> = Object.
     '[UNWIRED] %s (configured but not registered; reload the plugin)',
   'webstack.doctor.engine.last-code': 'last error code %s',
   'webstack.doctor.cache.stats': 'Cache stats: %s hits / %s misses / %s entries',
+  'webstack.doctor.bridge.online':
+    'Browser bridge satellite: online (T3 render fallback available).',
+  'webstack.doctor.bridge.offline':
+    'Browser bridge satellite: offline/unpaired; fetch uses the static pipeline only.',
+  'webstack.doctor.vertical.on':
+    'Vertical channel (X): enabled; a vertical leg is fired when trigger words match.',
+  'webstack.doctor.vertical.off':
+    'Vertical channel (X): off (enable via verticals.channels.x in settings).',
+  'webstack.doctor.vertical.pack-missing':
+    'Vertical channel (X): enabled but the satellite package dsh-webstack-verticals is missing; vertical legs are skipped silently. Install it and reload to enable.',
   'webstack.doctor.header': 'WebStack engine doctor report',
 });
 

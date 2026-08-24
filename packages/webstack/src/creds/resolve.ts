@@ -103,6 +103,60 @@ function presentValue(value: string | undefined): string | undefined {
 }
 
 /**
+ * 三级链核心（内部）：逐引擎解析并**同时**收集明文密钥。
+ * 明文只存在于本次调用的返回值内（进程内传递给引擎请求对象，W-B-55 的
+ * 请求内延伸）；快照本体仍然只含布尔态/掩码/opaque id。
+ */
+async function resolveCore(
+  engineIds: readonly string[],
+  opts: ResolveCredsOptions,
+): Promise<{ entries: Record<string, CredSnapshotEntry>; secrets: Record<string, string> }> {
+  const entries: Record<string, CredSnapshotEntry> = {};
+  const secrets: Record<string, string> = {};
+
+  for (const engineId of engineIds) {
+    let entry: CredSnapshotEntry = ABSENT_ENTRY;
+    let secret: string | undefined;
+
+    // 第 1 级：legacy-literal —— 配置面遗留字面值。
+    const literal = presentValue(opts.configValues?.[engineId]);
+    if (literal !== undefined) {
+      if (isPlaceholderSecret(literal)) {
+        opts.onWarning?.(engineId, 'webstack.creds.placeholder-detected');
+      } else {
+        entry = configuredEntry('legacy-literal', literal);
+        secret = literal;
+      }
+    }
+
+    // 第 2 级：credential-ref —— 经宿主 credentials 域解析；服务缺席跳级。
+    const ref = presentValue(opts.credentialsRef?.[engineId]);
+    if (entry.state === 'absent' && ref !== undefined) {
+      const resolved = await opts.seams?.credentials?.resolve(ref);
+      const viaSeam = presentValue(resolved);
+      if (viaSeam !== undefined && !isPlaceholderSecret(viaSeam)) {
+        entry = configuredEntry('credential-ref', viaSeam);
+        secret = viaSeam;
+      }
+    }
+
+    // 第 3 级：env —— 进程环境变量兜底。
+    if (entry.state === 'absent') {
+      const fromEnv = presentValue(process.env[envVarName(engineId)]);
+      if (fromEnv !== undefined && !isPlaceholderSecret(fromEnv)) {
+        entry = configuredEntry('env', fromEnv);
+        secret = fromEnv;
+      }
+    }
+
+    entries[engineId] = entry;
+    if (secret !== undefined) secrets[engineId] = secret;
+  }
+
+  return { entries, secrets };
+}
+
+/**
  * 按三级链逐引擎解析凭据快照。每次搜索/抓取操作起点调用一次，
  * 操作内一致（W-B-74）；轮换密钥在下次调用即刻生效。
  *
@@ -116,44 +170,22 @@ export async function resolveCreds(
   engineIds: readonly string[],
   opts: ResolveCredsOptions = {},
 ): Promise<CredsSnapshot> {
-  const resolvedAt = Date.now();
-  const entries: Record<string, CredSnapshotEntry> = {};
+  const { entries } = await resolveCore(engineIds, opts);
+  return { resolvedAt: Date.now(), entries };
+}
 
-  for (const engineId of engineIds) {
-    let entry: CredSnapshotEntry = ABSENT_ENTRY;
-
-    // 第 1 级：legacy-literal —— 配置面遗留字面值。
-    const literal = presentValue(opts.configValues?.[engineId]);
-    if (literal !== undefined) {
-      if (isPlaceholderSecret(literal)) {
-        opts.onWarning?.(engineId, 'webstack.creds.placeholder-detected');
-      } else {
-        entry = configuredEntry('legacy-literal', literal);
-      }
-    }
-
-    // 第 2 级：credential-ref —— 经宿主 credentials 域解析；服务缺席跳级。
-    const ref = presentValue(opts.credentialsRef?.[engineId]);
-    if (entry.state === 'absent' && ref !== undefined) {
-      const resolved = await opts.seams?.credentials?.resolve(ref);
-      const viaSeam = presentValue(resolved);
-      if (viaSeam !== undefined && !isPlaceholderSecret(viaSeam)) {
-        entry = configuredEntry('credential-ref', viaSeam);
-      }
-    }
-
-    // 第 3 级：env —— 进程环境变量兜底。
-    if (entry.state === 'absent') {
-      const fromEnv = presentValue(process.env[envVarName(engineId)]);
-      if (fromEnv !== undefined && !isPlaceholderSecret(fromEnv)) {
-        entry = configuredEntry('env', fromEnv);
-      }
-    }
-
-    entries[engineId] = entry;
-  }
-
-  return { resolvedAt, entries };
+/**
+ * {@link resolveCreds} 的明文伴随版（装配层凭据流专用，W9）：快照语义完全
+ * 一致，额外返回 `engineId → 明文密钥` 映射——仅供聚合器在同一操作起点把
+ * 明文装进 EngineSearchRequest.credentials（仅进程内、仅请求生命周期），
+ * 绝不落日志/缓存/模型上下文（W-B-55 纪律由调用方继续承担）。
+ */
+export async function resolveCredsDetailed(
+  engineIds: readonly string[],
+  opts: ResolveCredsOptions = {},
+): Promise<{ snapshot: CredsSnapshot; secrets: Readonly<Record<string, string>> }> {
+  const { entries, secrets } = await resolveCore(engineIds, opts);
+  return { snapshot: { resolvedAt: Date.now(), entries }, secrets };
 }
 
 /**

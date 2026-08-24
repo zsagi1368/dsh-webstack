@@ -78,11 +78,22 @@ describe('planSearch 规划矩阵', () => {
     expect(planSearch({ ...CONFIG, fusionEnabled: false }, HINTS, 'complex').fusion).toBe(false);
   });
 
-  it('层池映射：native→[native]、selfhosted→[searxng]、api/mcp 本期空池', () => {
+  it('层池映射：native→[native]、selfhosted→[searxng]、api→keyed 集（W9）、mcp 经 layerPools 动态注入', () => {
     expect(LAYER_ENGINE_POOL.native).toEqual(['native']);
     expect(LAYER_ENGINE_POOL.selfhosted).toEqual(['searxng']);
-    expect(planSearch({ ...CONFIG, layer: 'api' }, HINTS, 'complex').engineIds).toEqual([]);
-    expect(planSearch({ ...CONFIG, layer: 'mcp' }, HINTS, 'complex').engineIds).toEqual([]);
+    expect(planSearch({ ...CONFIG, layer: 'api' }, HINTS, 'complex').engineIds).toEqual([
+      'tavily',
+      'brave',
+      'exa',
+      'jina',
+      'firecrawl',
+      'anysearch',
+    ]);
+    expect(LAYER_ENGINE_POOL.mcp).toEqual([]);
+    expect(
+      planSearch({ ...CONFIG, layer: 'mcp', layerPools: { mcp: ['my-mcp'] } }, HINTS, 'complex')
+        .engineIds,
+    ).toEqual(['my-mcp']);
   });
 });
 

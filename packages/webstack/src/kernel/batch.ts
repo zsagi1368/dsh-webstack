@@ -26,7 +26,7 @@ export const BATCH_MAX_CONCURRENCY = 5;
 
 /** 批量扇出的执行依赖注入点（聚合器 search 或任意等价实现）。 */
 export interface BatchSearchDeps {
-  readonly run: (query: string) => Promise<NormalizedHit[]>;
+  readonly run: (query: string) => Promise<readonly NormalizedHit[]>;
 }
 
 /**

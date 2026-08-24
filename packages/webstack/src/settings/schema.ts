@@ -16,7 +16,12 @@ import type { FetchMode, SearchLayer, SelectorRule, SessionOnlineMode } from '..
 export interface EngineNodeSettings {
   /** 引擎总开关（缺省 true，随注册表默认）。 */
   enabled?: boolean;
-  /** 遗留字面值密钥（三级解析链第 1 级；占位符保存时阻断）。 */
+  /**
+   * 遗留字面值密钥（三级解析链第 1 级；占位符保存时阻断）。
+   * `key` 是规范键位；`apiKey` 为历史别名，读取侧 `key ?? apiKey` 兼容。
+   */
+  key?: string;
+  /** 历史别名字面值密钥（与 `key` 同层；新配置一律写 `key`）。 */
   apiKey?: string;
   /** 宿主 credentials 域引用名（三级解析链第 2 级）。 */
   credentialRef?: string;
@@ -79,6 +84,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   advanced: {
     /** hints 提取词表语言：'auto' 跟随查询语言，或固定 'zh'/'en'。 */
     hintsLocale: 'auto',
+    /**
+     * Windows 系统代理兜底（默认 false）：开启后 activate 早期探测一次
+     * 系统代理并注入 HTTPS_PROXY/HTTP_PROXY（尽力而为层，见 safety/winproxy）。
+     */
+    winProxyFallback: false,
   },
 });
 
@@ -108,4 +118,5 @@ export const HOT_RELOADABLE: Readonly<Record<string, boolean>> = Object.freeze({
   'verticals.channels.x': true,
   'verticals.selectorRules': true,
   'advanced.hintsLocale': true,
+  'advanced.winProxyFallback': true,
 });

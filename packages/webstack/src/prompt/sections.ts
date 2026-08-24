@@ -54,16 +54,36 @@ export function charterSection(locale: Locale = 'zh'): SeamPromptSection {
 
 /**
  * 动态状态节生成器：由 registry.statusSnapshot() 的快照渲染一行式现状
- * （正常/冷却/未接线计数与冷却中的引擎名），≤80 词。
+ * （正常/冷却/未接线计数与冷却中的引擎名），≤80 词。W9 加法式增补：
+ * `extras` 携带桥接卫星与垂直频道开关时追加短句（仍受词数预算约束）。
  */
 export function statusSection(
   status: Readonly<Record<string, EngineStatusEntry>>,
   locale: Locale = 'zh',
+  extras?: {
+    /** 浏览器桥接卫星是否在线；缺席不提及。 */
+    readonly bridgeOnline?: boolean;
+    /** 垂直频道（X）是否开启；缺席不提及。 */
+    readonly verticalEnabled?: boolean;
+  },
 ): SeamPromptSection {
   const ids = Object.keys(status);
   const cooling = ids.filter((id) => status[id]?.state === 'cooldown');
   const unwired = ids.filter((id) => status[id]?.state === 'unwired');
   const okCount = ids.length - cooling.length - unwired.length;
+
+  const extrasEn: string[] = [];
+  const extrasZh: string[] = [];
+  if (extras?.bridgeOnline !== undefined) {
+    extrasEn.push(extras.bridgeOnline ? 'bridge online' : 'bridge offline');
+    extrasZh.push(extras.bridgeOnline ? '桥接在线' : '桥接离线');
+  }
+  if (extras?.verticalEnabled !== undefined) {
+    extrasEn.push(extras.verticalEnabled ? 'X vertical on' : 'X vertical off');
+    extrasZh.push(`X垂类${extras.verticalEnabled ? '开' : '关'}`);
+  }
+  const suffixEn = extrasEn.length === 0 ? '' : ` ${extrasEn.join(', ')}.`;
+  const suffixZh = extrasZh.length === 0 ? '' : `${extrasZh.join('、')}。`;
 
   let body: string;
   if (ids.length === 0) {
@@ -72,11 +92,11 @@ export function statusSection(
         ? 'WebStack status: no engines registered.'
         : 'WebStack 状态：当前没有已注册引擎。';
   } else if (locale === 'en') {
-    body = `WebStack status: ${okCount} OK, ${cooling.length} cooling down, ${unwired.length} unwired (of ${ids.length}).`;
+    body = `WebStack status: ${okCount} OK, ${cooling.length} cooling down, ${unwired.length} unwired (of ${ids.length}).${suffixEn}`;
     if (cooling.length > 0) body += ` Cooling: ${cooling.join(', ')}.`;
     if (unwired.length > 0) body += ` Unwired: ${unwired.join(', ')}.`;
   } else {
-    body = `WebStack 状态：共 ${ids.length} 个引擎——正常 ${okCount}、冷却 ${cooling.length}、未接线 ${unwired.length}。`;
+    body = `WebStack 状态：共 ${ids.length} 个引擎——正常 ${okCount}、冷却 ${cooling.length}、未接线 ${unwired.length}。${suffixZh}`;
     if (cooling.length > 0) body += `冷却中：${cooling.join('、')}。`;
     if (unwired.length > 0) body += `未接线：${unwired.join('、')}。`;
   }

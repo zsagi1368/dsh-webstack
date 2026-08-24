@@ -30,6 +30,12 @@ export interface DoctorEngineEntry {
   readonly lastCode?: string;
 }
 
+/** 桥接卫星在报告中的三态词汇（W9：在线 / 离线；缺席 = 不输出该节）。 */
+export type DoctorBridgeState = 'online' | 'offline';
+
+/** 垂直频道在报告中的三态词汇（W9）：开 / 关 / 开但卫星包缺失。 */
+export type DoctorVerticalState = 'on' | 'off' | 'pack-missing';
+
 /** 机器可读体检报告（web_backend_status 的 canonical 值同形）。 */
 export interface DoctorReport {
   readonly tier: TierMode;
@@ -39,6 +45,10 @@ export interface DoctorReport {
     readonly misses: number;
     readonly size: number;
   };
+  /** 浏览器桥接卫星状态（W9 加法式增补；缺席 = 装配层未上报，不渲染该行）。 */
+  readonly bridge?: DoctorBridgeState;
+  /** 垂直频道状态（W9 加法式增补；缺席 = 不渲染该行）。 */
+  readonly vertical?: DoctorVerticalState;
 }
 
 export interface DoctorDeps {
@@ -51,11 +61,15 @@ export interface DoctorDeps {
    * 报告中以 unwired 态列出；缺省不合并。
    */
   readonly configuredEngineIds?: readonly string[];
+  /** 浏览器桥接卫星是否在线（装配层探测结果）；缺省不输出桥接行。 */
+  readonly bridgeOnline?: boolean;
+  /** 垂直频道当前状态；缺省不输出垂直行。 */
+  readonly vertical?: DoctorVerticalState;
 }
 
 /**
  * 编排一次体检：registry 状态快照 ∪ 配置面已知引擎 → 统一条目；
- * 缓存计数直读。全程本地数据，零副作用。
+ * 缓存计数直读；桥/垂类状态透传。全程本地数据，零副作用。
  */
 export function runDoctor(deps: DoctorDeps): DoctorReport {
   const now = Date.now();
@@ -90,6 +104,10 @@ export function runDoctor(deps: DoctorDeps): DoctorReport {
     tier: deps.tier,
     engines,
     cache: { hits: stats.hits, misses: stats.misses, size: stats.size },
+    ...(deps.bridgeOnline === undefined
+      ? {}
+      : { bridge: deps.bridgeOnline ? 'online' : 'offline' }),
+    ...(deps.vertical === undefined ? {} : { vertical: deps.vertical }),
   };
 }
 
@@ -133,6 +151,27 @@ export function renderDoctor(report: DoctorReport, locale: Locale = 'zh'): strin
     if (engine.lastCode !== undefined) {
       lines.push(fill(doctorText('webstack.doctor.engine.last-code', locale), [engine.lastCode]));
     }
+  }
+
+  // W9 加法式增补：桥接卫星与垂直频道状态行（缺席不渲染，报告向后兼容）。
+  if (report.bridge !== undefined) {
+    lines.push(
+      doctorText(
+        report.bridge === 'online'
+          ? 'webstack.doctor.bridge.online'
+          : 'webstack.doctor.bridge.offline',
+        locale,
+      ),
+    );
+  }
+  if (report.vertical !== undefined) {
+    const verticalKey =
+      report.vertical === 'on'
+        ? 'webstack.doctor.vertical.on'
+        : report.vertical === 'off'
+          ? 'webstack.doctor.vertical.off'
+          : 'webstack.doctor.vertical.pack-missing';
+    lines.push(doctorText(verticalKey, locale));
   }
 
   lines.push(

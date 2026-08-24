@@ -277,8 +277,8 @@ function buildForest(html: string, root: MiniElement): void {
   const el = (tag: string, attrs: Record<string, string>, innerStart: number): MiniElement => ({
     tag,
     attrs,
-    classes: (attrs['class'] ?? '').split(/\s+/).filter((c) => c !== ''),
-    id: attrs['id'],
+    classes: (attrs.class ?? '').split(/\s+/).filter((c) => c !== ''),
+    id: attrs.id,
     parent: stack[stack.length - 1],
     children: [],
     innerStart,
