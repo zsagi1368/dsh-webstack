@@ -1,6 +1,6 @@
 {
   "name": "dsh-webstack",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WebStack (网栈): integrated web search + fetch kernel plugin for DeepSeek Harness",
   "keywords": [
     "deepseek-harness",

@@ -1,6 +1,6 @@
 {
   "name": "dsh-webstack-bridge",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WebStack Bridge (网栈·桥): browser-bridge satellite (host side) — MV3 extension rendering fallback over a loopback WebSocket, cookies never leave the browser",
   "keywords": [
     "deepseek-harness",

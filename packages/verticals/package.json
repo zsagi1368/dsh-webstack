@@ -1,6 +1,6 @@
 {
   "name": "dsh-webstack-verticals",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "WebStack Verticals (网栈·垂): experimental vertical-channel satellite — compliant credential-free X fallback via site: search plus official oEmbed enrichment; off by default, user opt-in only",
   "keywords": [
     "deepseek-harness",
