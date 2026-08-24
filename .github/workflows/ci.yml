@@ -30,3 +30,47 @@ jobs:
         run: pnpm run test
       - name: Build
         run: pnpm run build
+
+  # 升级冒烟（W10b）：上游 @deepseek-ai/* 的 next 渠道漂移哨兵。把全组织
+  # overrides 映射临时换到 next dist-tag 解析出的最新 rc 版本后重装，只跑
+  # packages/webstack 的 typecheck + tests/kernel-types.test.ts 契约结构断言。
+  # 失败即本 job 红（continue-on-error: false）；本 job 与 check 矩阵无依赖边，
+  # 并行执行，因此冒烟红不阻塞主矩阵（分支保护可单独决定是否必过）。
+  upgrade-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    env:
+      DSH_BASELINE: next
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Resolve next dist-tag version
+        run: |
+          NEXT_VERSION="$(pnpm view "@deepseek-ai/dsh-web@${DSH_BASELINE}" version | tail -n1)"
+          if [ -z "$NEXT_VERSION" ]; then
+            echo "::error::dist-tag ${DSH_BASELINE} 解析失败：上游 registry 无该 tag"
+            exit 1
+          fi
+          echo "DSH_NEXT_VERSION=${NEXT_VERSION}" >> "$GITHUB_ENV"
+          echo "baseline=${DSH_BASELINE} resolves to ${NEXT_VERSION}"
+      - name: Re-pin overrides map to next baseline
+        run: |
+          # pnpm.overrides 全量钉在 0.1.1-rc.2；`--config.overrides-map` 不可
+          # CLI 覆写，故临时 sed 整体替换为 next 解析版（只动工作区文件，
+          # 不回写提交）。devDeps 精确钉同样被 overrides 优先级覆盖。
+          sed -i "s|0\.1\.1-rc\.2|${DSH_NEXT_VERSION}|g" pnpm-workspace.yaml
+          grep -n '@deepseek-ai/dsh-web' pnpm-workspace.yaml
+      - name: Install against next baseline (unfrozen)
+        run: pnpm install --no-frozen-lockfile
+      - name: Typecheck webstack against next types
+        run: pnpm --filter dsh-webstack run typecheck
+      - name: Contract sentinel kernel-types.test.ts
+        run: pnpm --filter dsh-webstack exec vitest run tests/kernel-types.test.ts
+      - name: Upstream drift alarm
+        if: failure()
+        run: |
+          echo "::error title=上游漂移警报::@deepseek-ai/* ${DSH_BASELINE} 渠道（${DSH_NEXT_VERSION:-unresolved}）与 WebStack 契约不兼容：typecheck 或 kernel-types 结构断言失败。请勿盲目升级 pnpm-workspace.yaml 基线，先按 docs/CALIBRATION.md 对齐 CONTRACTS。"

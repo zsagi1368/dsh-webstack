@@ -41,6 +41,16 @@ dependencies:
 
 Node.js >= 22.19。零原生模块；运行时依赖仅 `@deepseek-ai/schemastery`。
 
+### 卫星包
+
+本 monorepo 附带两个可选伴生包：
+
+- **`dsh-webstack-bridge`** —— 浏览器扩展卫星，提供 T3 渲染兜底（静态抓取
+  失败/JS 空壳救援）。安装与配对指引：[`packages/bridge/extension/README.md`](../../packages/bridge/extension/README.md)。
+- **`dsh-webstack-verticals`** —— 实验性 X/Twitter 垂直腿（免费池 + oEmbed
+  合规链，免凭据）。经 `verticals.packEnabled` + `verticals.channels.x`
+  开启；开启需重载插件。
+
 ## 配置
 
 全量键集见 `src/settings/schema.ts`（`DEFAULT_SETTINGS`）。「热」= 下一次操作即生效；「重启」= 涉及引擎/进程结构变化，需重载插件。
@@ -93,15 +103,29 @@ Node.js >= 22.19。零原生模块；运行时依赖仅 `@deepseek-ai/schemaster
 query
   → extractHints      # site:/引号短语/时效词/语言 → SearchHints（确定性）
   → estimateBand      # simple | medium | complex
-  → planSearch        # 层池 × 分档宽度 × autoFallback → engineIds；命中垂类触发矩阵时加发垂直腿
+  → planSearch        # 层池 × 分档宽度 × autoFallback → engineIds；命中垂类触发矩阵加发垂直腿
   → creds             # 三级链每操作解析一次 → 快照 + 凭据指纹 + 明文按槽位进请求对象
   → cache             # CacheKeyInput 全维度 sha256 指纹（含凭据指纹）；mode=on 强制 fresh 跳读
   → fallback          # registry.runWithFallback：冷却剔除 / 重试一次 / 终态中止
+  ├─ 垂直腿            # 计划尾加发 dsh-webstack-verticals X 腿（实验性，随档位预算 race 结算）
   → RRF               # fuse 按 URL 身份去重，Σ1/(60+rank)，三参加权，分数归一化
   → seam              # 截断至 count，映射 NormalizedHit[] → SeamWebSearchResult
 ```
 
-抓取操作走同一条出站通道：预算派生（canonical = min(maxContentChars×4, 8 MiB)）→ SSRF 四道闸 → 有界读体 → 抽取回退链（raw→fit）→ 「状态即数据」上呈；桥接卫星在线时，管道失败或正文过短会单次 `bridge.render` 兜底（`statusCode=0`、`via='bridge'`）。
+抓取操作走同一条出站通道：
+
+```
+url
+  → budgets           # canonical = min(maxContentChars×4, 8 MiB)；三层独立互不挤占
+  → SSRF 四道闸        # G1 静态 → G2 DNS → G3 重定向逐跳复验 → G4 有界读体
+  → 站选规则           # selectorRules 命中 → 选择器抽取优先（mode=fit）
+  → 抽取回退链         # raw→fit 有内容者胜；JSON 分支 pretty-print
+  → 上呈              # 状态即数据 + 全空解释文案；T3：失败/过短单次 bridge.render 兜底
+```
+
+桥接卫星在线时，管道故障或正文过短会单次 `bridge.render` 兜底（`statusCode=0`、`via='bridge'`）。
+
+各阶段性能包线与预算对照见 [`docs/BENCHMARK.md`](./docs/BENCHMARK.md)（本地复现：`pnpm --filter dsh-webstack bench`）。
 
 ## 设置面板
 
@@ -124,10 +148,14 @@ query
 
 ## Roadmap TODO
 
-- native delegate 句柄捕获（接管档），让 `native` 层转发到宿主内置 provider（当前已注册委托引擎，句柄缺位时可诊断失败）。
-- 垂直频道增量与站选选择器规则的设置面编辑器。
+剩余真实 TODO：
+
+- native delegate 句柄捕获（平台侧），让 `native` 层真实转发到宿主内置 provider（当前已注册委托引擎，句柄缺位时可诊断失败）。
 - 宿主 locale 探测（当前守则/状态节固定中文）。
+- fetch 域缓存接线（`cache.ttlFetchMin` 已定义待消费）。
+- 垂直频道增量与站选选择器规则的设置面编辑器。
 - `selectorPatchable` 运行期回读验证；桥接卫星配对状态的主动心跳回读。
+- npm 发布自动化（发布 token 待办）。
 
 ## 许可证
 

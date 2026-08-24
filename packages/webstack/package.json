@@ -61,6 +61,7 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "bench": "node --experimental-transform-types bench/pipeline.bench.mjs",
     "lint": "biome check .",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
