@@ -68,6 +68,8 @@ Node.js >= 22.19。零原生模块；运行时依赖仅 `@deepseek-ai/schemaster
 | `engines` | `{}` | **重启** | 引擎级节点：`key`（历史别名 `apiKey`）/ `credentialRef` / `enabled` |
 | `mcpServers` | `[]` | **重启** | MCP server 条目表；过 `validateMcpEntry` 的注册为搜索引擎，拒绝项进 doctor unwired 清单 |
 | `verticals.packEnabled` | `false` | 热* | 垂类卫星包总闸；关闭即时生效，开启需重载插件（结构注册） |
+| `verticals.channels.x` | `false` | 热 | X 频道开关（受 `verticals.packEnabled` 总闸约束，双开才注册垂直腿） |
+| `verticals.selectorRules` | `[]` | 热 | 站选定制源规则（`hostSuffix` + CSS 选择器子集），抓取入口命中后优先选择器抽取 |
 | `advanced.hintsLocale` | `auto` | 热 | hints 词表语言 |
 | `advanced.winProxyFallback` | `false` | 热 | 开启后启动早期探测 Windows 系统代理并注入 env（尽力而为层） |
 

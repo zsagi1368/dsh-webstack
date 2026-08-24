@@ -16,6 +16,7 @@
  */
 
 import { engineError } from '../kernel/errors.ts';
+import { redactUrl, scrubText } from './scrub.ts';
 import { assertSafeRedirect, checkTarget } from './ssrf.ts';
 
 /** 协议白名单：出站仅允许 http/https（Mimosa 硬性约束）。 */
@@ -166,7 +167,9 @@ export async function outboundFetch(
     try {
       verdict = await checkTarget(currentUrl, exemptions);
     } catch (cause) {
-      throw engineError('ssrf-blocked', `target dns resolution failed: ${currentUrl}`, {
+      // W10 审计加固：消息拼接必须经 redactUrl——目标 URL 的 query 可能携带
+      // 引擎密钥/敏感参数（与 ssrf.assertSafeRedirect 同一纪律）。
+      throw engineError('ssrf-blocked', `target dns resolution failed: ${redactUrl(currentUrl)}`, {
         detail: 'dns-resolution-failed',
         cause,
       });
@@ -244,9 +247,15 @@ export async function outboundFetch(
     try {
       nextUrl = new URL(location, currentUrl).toString();
     } catch (cause) {
-      throw engineError('transport', `invalid Location header: ${location}`, {
-        cause,
-      });
+      // W10 审计加固：Location 是对端可控的自由文本，进错误消息前截断+脱敏，
+      // 防日志/上下文注入式长串与敏感 query 顺流而上（scrubText 保留可诊断性）。
+      throw engineError(
+        'transport',
+        `invalid Location header: ${scrubText(location.slice(0, 256))}`,
+        {
+          cause,
+        },
+      );
     }
     await assertSafeRedirect(currentUrl, nextUrl, hadAuthHeader, exemptions);
 

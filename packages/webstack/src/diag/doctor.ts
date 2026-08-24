@@ -153,6 +153,12 @@ export function renderDoctor(report: DoctorReport, locale: Locale = 'zh'): strin
     }
   }
 
+  // W10 审计加固（UX）：「全冷却」场景补一条聚合处方——逐引擎倒计时只回答
+  // 「多久恢复」，不回答「我该做什么」；全部条目皆 cooldown 时才触发。
+  if (report.engines.length > 0 && report.engines.every((engine) => engine.state === 'cooldown')) {
+    lines.push(doctorText('webstack.doctor.rx.all-cooldown', locale));
+  }
+
   // W9 加法式增补：桥接卫星与垂直频道状态行（缺席不渲染，报告向后兼容）。
   if (report.bridge !== undefined) {
     lines.push(

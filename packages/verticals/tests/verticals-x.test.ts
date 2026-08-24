@@ -137,6 +137,47 @@ describe('两腿链路与 via 标注', () => {
     expect(outbound.mock.calls[0]?.[0]?.url.startsWith(OEMBED_ENDPOINT)).toBe(true);
   });
 
+  // ---- W10 审计回归：oEmbed html 富化的 script/style 内容体剥离 ------------
+  it('W10 安全：oEmbed html 内 <script> 整块剥离，JS 源码不进 snippet', async () => {
+    const channel = new XVerticalChannel();
+    const outbound = fakeOutbound(
+      '<blockquote class="twitter-tweet"><p>推文正文内容</p></blockquote><script async src="https://platform.example/widgets.js">alert(1)</script>',
+    );
+    const deps: VerticalDeps = {
+      search: vi.fn(async () => [tweetHit()]),
+      outboundFetch: outbound,
+    };
+    const hits = await channel.run(makeReq('主题'), deps);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]?.provenance.via).toBe(VIA_OEMBED);
+    expect(hits[0]?.snippet).not.toContain('alert(1)');
+    expect(hits[0]?.snippet).toContain('推文正文内容');
+  });
+
+  it('W10 安全：实体混淆形态 &lt;script&gt; 解码后二次扫描同样剥除', async () => {
+    const channel = new XVerticalChannel();
+    const outbound = fakeOutbound('<p>正文段落</p>&lt;script&gt;evilPayload()&lt;/script&gt;');
+    const deps: VerticalDeps = {
+      search: vi.fn(async () => [tweetHit()]),
+      outboundFetch: outbound,
+    };
+    const hits = await channel.run(makeReq('主题'), deps);
+    expect(hits[0]?.snippet).not.toContain('evilPayload');
+    expect(hits[0]?.snippet).toContain('正文段落');
+  });
+
+  it('W10 安全：<style> 块内容体一并剥离', async () => {
+    const channel = new XVerticalChannel();
+    const outbound = fakeOutbound('<style>.a{color:red}</style><p>样式后的正文</p>');
+    const deps: VerticalDeps = {
+      search: vi.fn(async () => [tweetHit()]),
+      outboundFetch: outbound,
+    };
+    const hits = await channel.run(makeReq('主题'), deps);
+    expect(hits[0]?.snippet).not.toContain('color:red');
+    expect(hits[0]?.snippet).toContain('样式后的正文');
+  });
+
   it('非推文结果直通：via=site-search 且绝不触发出站', async () => {
     const channel = new XVerticalChannel();
     const outbound = fakeOutbound('<p>不该被调用</p>');

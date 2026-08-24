@@ -304,3 +304,37 @@ describe('outboundFetch 错误语义（冻结）', () => {
     expect(DEFAULT_TIMEOUT_MS).toBe(8000);
   });
 });
+
+// ---------------------------------------------------------------------------
+// W10 审计回归：错误消息拼接面的凭据泄漏与注入截断
+// ---------------------------------------------------------------------------
+
+describe('W10 回归：错误消息脱敏', () => {
+  it('DNS 失败消息经 redactUrl：api_key query 值不得出现在 message', async () => {
+    mockLookup.mockRejectedValue(new Error('getaddrinfo ENOTFOUND'));
+    vi.stubGlobal('fetch', fetchMock);
+    const err = await outboundFetch({
+      url: 'https://leak.example/search?q=x&api_key=TOPSECRET',
+      maxBytes: 10,
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'ssrf-blocked', detail: 'dns-resolution-failed' });
+    expect(String((err as Error).message)).not.toContain('TOPSECRET');
+    expect(String((err as Error).message)).toContain('REDACTED'); // searchParams.set 会百分号编码占位符
+  });
+
+  it('非法 Location 头：进消息前被 scrub+截断，敏感 query 与超长串不透传', async () => {
+    const hostile = `http://evil.example/?key=TOPSECRET&token=LEAKME%zz${'x'.repeat(4000)}`;
+    mockLookup.mockImplementation(async () => PUBLIC);
+    fetchMock.mockImplementation(async () => jsonResponse('', 302, { location: hostile }));
+    vi.stubGlobal('fetch', fetchMock);
+    const err = await outboundFetch({
+      url: 'https://public.example/start',
+      maxBytes: 10,
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: 'transport' });
+    const message = String((err as Error).message);
+    expect(message).not.toContain('TOPSECRET');
+    expect(message).not.toContain('LEAKME');
+    expect(message.length).toBeLessThan(400);
+  });
+});

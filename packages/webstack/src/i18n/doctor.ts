@@ -22,6 +22,7 @@ export type DoctorI18nKey =
   | 'webstack.doctor.vertical.on'
   | 'webstack.doctor.vertical.off'
   | 'webstack.doctor.vertical.pack-missing'
+  | 'webstack.doctor.rx.all-cooldown'
   | 'webstack.doctor.header';
 
 /** 语言闭包（与 src/i18n/index.ts 的 Locale 同形；就地声明避免反向依赖）。 */
@@ -43,11 +44,14 @@ export const doctorMessagesZh: Readonly<Record<DoctorI18nKey, string>> = Object.
   'webstack.doctor.engine.last-code': '上次错误码 %s',
   'webstack.doctor.cache.stats': '缓存统计：命中 %s 次 / 未命中 %s 次 / 当前条目 %s 条',
   'webstack.doctor.bridge.online': '浏览器桥接卫星：在线（T3 渲染兜底可用）。',
-  'webstack.doctor.bridge.offline': '浏览器桥接卫星：离线/未配对（抓取仅静态管线）。',
+  'webstack.doctor.bridge.offline':
+    '浏览器桥接卫星：离线/未配对（抓取仅静态管线）。处置：打开桥接扩展弹窗完成配对，并确认扩展 service worker 存活、桥接总闸已开启；不使用桥接可忽略本行。',
   'webstack.doctor.vertical.on': '垂直频道（X）：已开启，命中触发词时加发垂直腿。',
   'webstack.doctor.vertical.off': '垂直频道（X）：关闭（设置 verticals.channels.x 可开启）。',
   'webstack.doctor.vertical.pack-missing':
     '垂直频道（X）：已开启但卫星包 dsh-webstack-verticals 缺失，垂直腿将静默跳过；安装后重载即可启用。',
+  'webstack.doctor.rx.all-cooldown':
+    '全部引擎处于冷却：多为上游限流或网络异常所致。处置：等待上方倒计时自动恢复；若反复出现，检查对应引擎的凭据与网络出口，或调整候选层设置。',
   'webstack.doctor.header': 'WebStack 引擎体检报告',
 });
 
@@ -74,13 +78,15 @@ export const doctorMessagesEn: Readonly<Record<DoctorI18nKey, string>> = Object.
   'webstack.doctor.bridge.online':
     'Browser bridge satellite: online (T3 render fallback available).',
   'webstack.doctor.bridge.offline':
-    'Browser bridge satellite: offline/unpaired; fetch uses the static pipeline only.',
+    'Browser bridge satellite: offline/unpaired; fetch uses the static pipeline only. Fix: open the bridge extension popup to complete pairing, and make sure the extension service worker is alive and the bridge switch is on. Ignore this line if you do not use the bridge.',
   'webstack.doctor.vertical.on':
     'Vertical channel (X): enabled; a vertical leg is fired when trigger words match.',
   'webstack.doctor.vertical.off':
     'Vertical channel (X): off (enable via verticals.channels.x in settings).',
   'webstack.doctor.vertical.pack-missing':
     'Vertical channel (X): enabled but the satellite package dsh-webstack-verticals is missing; vertical legs are skipped silently. Install it and reload to enable.',
+  'webstack.doctor.rx.all-cooldown':
+    'All engines are cooling down: usually upstream rate limits or network failures. Wait for the countdowns above to elapse; if this keeps recurring, check the engine credentials and network egress, or adjust the candidate layer in settings.',
   'webstack.doctor.header': 'WebStack engine doctor report',
 });
 

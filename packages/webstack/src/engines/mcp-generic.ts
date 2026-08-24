@@ -295,8 +295,18 @@ export function parseMcpJsonHits(value: unknown, engineId: string, count: number
 
 /** 行内裸 URL（排除常见尾随标点与闭合括号；非全局，无 lastIndex 状态）。 */
 const BARE_URL_RE = /https?:\/\/[^\s<>"'`)\]]+/;
-/** markdown 链接 `[title](url)`。 */
-const MD_LINK_RE = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+/**
+ * markdown 链接 `[title](url)`。W10 审计加固（ReDoS）：
+ * - 标题段限量 `{1,512}`——`[^\]]+` 无界贪婪在 `'['×n` 这类病态行上是
+ *   O(n²) 回溯（实测 100k 字符 ≈3.2s，MCP 工具输出是远端可控输入，且同步
+ *   正则不受阶段护栏超时约束，等于事件循环被单腿挂死）；
+ * - 匹配前先做 `includes('](')` 快速门槛，无候选的行零回溯成本。
+ * 正常 markdown 链接语义不变：标题超 2048 字符本就不该作标题采用。
+ */
+const MD_LINK_RE = /\[([^\]]{1,512})\]\((https?:\/\/[^\s)]+)\)/g;
+
+/** markdown 链接候选行的快速判定片段（先验门槛，防病态行进入回溯引擎）。 */
+const MD_LINK_HINT = '](';
 
 /**
  * MCP 纯文本结果 → NormalizedHit[]（行级启发式）：markdown 链接行优先
@@ -318,11 +328,13 @@ export function parseMcpTextHits(text: string, engineId: string, count: number):
   for (const line of text.split(/\r?\n/)) {
     if (hits.length >= count) break;
     let matched = false;
-    for (const match of line.matchAll(MD_LINK_RE)) {
-      const [, rawTitle, rawUrl] = match;
-      if (rawUrl === undefined || rawUrl === '') continue;
-      matched = true;
-      push(rawUrl, (rawTitle ?? '').trim());
+    if (line.includes(MD_LINK_HINT)) {
+      for (const match of line.matchAll(MD_LINK_RE)) {
+        const [, rawTitle, rawUrl] = match;
+        if (rawUrl === undefined || rawUrl === '') continue;
+        matched = true;
+        push(rawUrl, (rawTitle ?? '').trim());
+      }
     }
     if (matched) continue;
     const bare = BARE_URL_RE.exec(line)?.[0];

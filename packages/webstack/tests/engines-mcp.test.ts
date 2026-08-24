@@ -514,6 +514,50 @@ describe('pickMcpSearchTool / resolveStdioCommand / 解析器', () => {
     expect(hits).toHaveLength(1);
     expect(parseMcpTextHits('completely plain', 'e', 10)).toHaveLength(0);
   });
+
+  // ---- W10 审计回归：markdown 链接正则的 ReDoS 加固 ------------------------
+  it('W10 ReDoS：超长 [ 字符行（无 ]( 候选）零回溯快速返回空', () => {
+    const evil = '['.repeat(200_000);
+    const started = Date.now();
+    expect(parseMcpTextHits(evil, 'e', 10)).toHaveLength(0);
+    expect(Date.now() - started).toBeLessThan(1000); // 修复前同输入 ≈13s（O(n²) 回溯）
+  });
+
+  it('W10 ReDoS：含 ]( 的病态行仍受标题限量约束，毫秒级返回', () => {
+    const evil = `${'['.repeat(80_000)}](`;
+    const started = Date.now();
+    expect(parseMcpTextHits(evil, 'e', 10)).toHaveLength(0);
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('W10 行为保持：常规 markdown 链接抽取与去重语义不变', () => {
+    const nl = String.fromCharCode(10);
+    const hits: NormalizedHit[] = parseMcpTextHits(
+      [
+        '[Alpha 结果](https://alpha.example/a)',
+        '[Beta](https://beta.example/b)',
+        '[Alpha 二见](https://alpha.example/a)',
+      ].join(nl),
+      'e',
+      10,
+    );
+    expect(hits).toHaveLength(2);
+    expect(hits[0]?.url).toBe('https://alpha.example/a');
+    expect(hits[0]?.title).toBe('Alpha 结果');
+    expect(hits[1]?.title).toBe('Beta');
+  });
+
+  it('W10 边界：标题恰在限量内照常采用；超限量标题回落裸 URL 提取（URL 不丢）', () => {
+    const okTitle = 't'.repeat(512);
+    const within = parseMcpTextHits(`[${okTitle}](https://within.example/w)`, 'e', 10);
+    expect(within).toHaveLength(1);
+    expect(within[0]?.title).toBe(okTitle);
+
+    const overTitle = 't'.repeat(600);
+    const over = parseMcpTextHits(`[${overTitle}](https://over.example/o)`, 'e', 10);
+    expect(over).toHaveLength(1);
+    expect(over[0]?.url).toBe('https://over.example/o');
+  });
 });
 
 // ---------------------------------------------------------------------------

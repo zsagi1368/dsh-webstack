@@ -54,6 +54,66 @@ describe('runDoctor W9 增补', () => {
     expect(plain).not.toContain('桥接卫星');
     expect(plain).not.toContain('垂直频道');
   });
+
+  it('W10 UX：桥接离线文案给出配对处置动作（zh/en 双语）', () => {
+    const zh = renderDoctor(runDoctor(deps({ bridgeOnline: false })), 'zh');
+    expect(zh).toContain('桥接卫星：离线/未配对');
+    expect(zh).toContain('弹窗完成配对'); // 处方可操作性：怎么修
+
+    const en = renderDoctor(runDoctor(deps({ bridgeOnline: false })), 'en');
+    expect(en).toContain('offline/unpaired');
+    expect(en).toContain('to complete pairing');
+  });
+});
+
+describe('W10 UX 回归：全冷却聚合处方', () => {
+  it('全部引擎 cooldown → 渲染 all-cooldown 处方（zh/en）；混合态不渲染', () => {
+    const allCooldownReport = {
+      tier: 'coexist' as const,
+      engines: [
+        { id: 'ddg', state: 'cooldown' as const, cooldownRemainingMs: 30_000 },
+        { id: 'bing-lite', state: 'cooldown' as const, cooldownRemainingMs: 61_000 },
+      ],
+      cache: { hits: 0, misses: 2, size: 0 },
+    };
+    const zh = renderDoctor(allCooldownReport, 'zh');
+    expect(zh).toContain('[冷却] ddg');
+    expect(zh).toContain('全部引擎处于冷却'); // 聚合处方：等待+检查凭据/出口
+    expect(zh).toContain('等待上方倒计时自动恢复');
+
+    const en = renderDoctor(allCooldownReport, 'en');
+    expect(en).toContain('All engines are cooling down');
+
+    const mixed = renderDoctor(
+      {
+        ...allCooldownReport,
+        engines: [
+          { id: 'ddg', state: 'cooldown' as const, cooldownRemainingMs: 30_000 },
+          { id: 'searxng', state: 'ok' as const },
+        ],
+      },
+      'zh',
+    );
+    expect(mixed).toContain('[正常] searxng');
+    expect(mixed).not.toContain('全部引擎处于冷却');
+  });
+
+  it('空引擎清单与 ok 态清单不触发全冷却处方', () => {
+    const empty = renderDoctor(
+      { tier: 'coexist', engines: [], cache: { hits: 0, misses: 0, size: 0 } },
+      'zh',
+    );
+    expect(empty).not.toContain('全部引擎处于冷却');
+    const ok = renderDoctor(
+      {
+        tier: 'takeover',
+        engines: [{ id: 'ddg', state: 'ok' }],
+        cache: { hits: 1, misses: 0, size: 1 },
+      },
+      'zh',
+    );
+    expect(ok).not.toContain('全部引擎处于冷却');
+  });
 });
 
 describe('statusSection W9 extras', () => {

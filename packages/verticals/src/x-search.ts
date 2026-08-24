@@ -116,9 +116,22 @@ function narrowNonEmptyString(value: unknown): string | undefined {
   return trimmed === '' ? undefined : trimmed;
 }
 
-/** 白名单实体单遍解码 + 去标签 → 纯文本（engine.stripHtmlToText 同款语义）。 */
+/**
+ * 噪声块（script/style）整块剔除正则。在实体解码**前后各跑一遍**：前扫剥
+ * 原生块，后扫兜住 `&lt;script&gt;…&lt;/script&gt;` 单遍解码即还原的混淆
+ * 形态（与 webstack extract.stripNoise 同纪律；全局标志配 String.replace
+ * 每次调用重置，无 lastIndex 状态泄漏）。
+ */
+const NOISE_BLOCK_RE = /<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
+
+/**
+ * 白名单实体单遍解码 + 去标签 → 纯文本（engine.stripHtmlToText 同款语义）。
+ * W10 审计加固：script/style 整块内容体剥离——oEmbed html 即便来自官方端点，
+ * 也按不可信输入处理，仅剔标签会把 `<script>` 的 JS 源码文本漏进 snippet。
+ */
 function stripHtmlToText(fragment: string): string {
-  const decoded = fragment.replace(/&(amp|lt|gt|quot|#x27);/g, (_, name: string) => {
+  const denoised = fragment.replace(NOISE_BLOCK_RE, ' ');
+  const decoded = denoised.replace(/&(amp|lt|gt|quot|#x27);/g, (_, name: string) => {
     switch (name) {
       case 'amp':
         return '&';
@@ -133,6 +146,7 @@ function stripHtmlToText(fragment: string): string {
     }
   });
   return decoded
+    .replace(NOISE_BLOCK_RE, ' ')
     .replace(/<[^>]*>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

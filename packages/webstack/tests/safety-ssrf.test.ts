@@ -285,3 +285,74 @@ describe('fetch-safety i18n（webstack.safety.blocked.*）', () => {
     expect(fetchSafetyBlockedKey('redirect-to-blocked')).toBe('webstack.safety.blocked.reserved');
   });
 });
+
+// ---------------------------------------------------------------------------
+// W10 审计回归：IPv6 缩写/映射绕过与豁免匹配边界
+// ---------------------------------------------------------------------------
+
+describe('W10 回归：classifyIp 十六进制形态 IPv4 映射地址', () => {
+  it('::ffff:7f00:1（=::ffff:127.0.0.1 的 inet_ntop 规范输出）判 loopback', () => {
+    expect(classifyIp('::ffff:7f00:1')).toBe('loopback');
+    expect(classifyIp('::FFFF:7F00:1')).toBe('loopback'); // 大小写容忍
+  });
+
+  it('映射前缀内嵌私有 v4（hex 形态）按 v4 规则判 private', () => {
+    expect(classifyIp('::ffff:a00:1')).toBe('private'); // 10.0.0.1
+    expect(classifyIp('::ffff:ac10:fe01')).toBe('private'); // 172.16.254.1
+    expect(classifyIp('0:0:0:0:0:ffff:c0a8:101')).toBe('private'); // 192.168.1.1 全展开
+    expect(classifyIp('::ffff:a9fe:101')).toBe('link-local'); // 169.254.1.1
+  });
+
+  it('NAT64 已知前缀 64:ff9b::/96 fail-closed 判 reserved', () => {
+    expect(classifyIp('64:ff9b::7f00:1')).toBe('reserved');
+    expect(classifyIp('64:ff9b::0808:0808')).toBe('reserved'); // 尾嵌公网 v4 也拒
+  });
+
+  it('常规公网 v6 不受映射复判影响；非映射全零尾段维持原语义', () => {
+    expect(classifyIp('2001:db8::1')).toBe('public');
+    expect(classifyIp('2606:4700:4700::1111')).toBe('public');
+    expect(classifyIp('::1')).toBe('loopback');
+    expect(classifyIp('::')).toBe('reserved');
+    expect(classifyIp('::0.0.0.2')).toBe('reserved'); // 全零前缀 + 非零尾（IPv4 兼容残形）维持 fail-closed
+  });
+
+  it('checkTarget G2 对 AAAA 返回 hex 映射回环地址同样拒绝', async () => {
+    mockLookup.mockImplementation(async () => [{ address: '::ffff:7f00:1', family: 6 }]);
+    const verdict = await checkTarget('https://rebind.example/');
+    expect(verdict).toMatchObject({ allowed: false, gate: 'G2-dns', reasonCode: 'loopback' });
+  });
+});
+
+describe('W10 回归：豁免 host:port 匹配边界', () => {
+  it('缺省端口等价：example.internal:443 命中 https 默认端口 URL（跳过 G2 且不发 DNS）', async () => {
+    mockLookup.mockImplementation(async () => [{ address: '10.1.2.3', family: 4 }]);
+    const verdict = await checkTarget('https://example.internal/', ['example.internal:443']);
+    expect(verdict).toEqual({ allowed: true });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('http 缺省端口等价：a.internal:80 命中 http://a.internal/', async () => {
+    mockLookup.mockImplementation(async () => [{ address: '192.168.0.9', family: 4 }]);
+    const verdict = await checkTarget('http://a.internal/x', ['a.internal:80']);
+    expect(verdict).toEqual({ allowed: true });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('端口不匹配仍走 G2：条目 :443 不放行 http 默认端口目标', async () => {
+    mockLookup.mockImplementation(async () => [{ address: '10.0.0.7', family: 4 }]);
+    const verdict = await checkTarget('http://b.internal/', ['b.internal:443']);
+    expect(verdict).toMatchObject({ allowed: false, reasonCode: 'private-range' });
+  });
+
+  it('方括号 IPv6 字面量豁免：[fe80::1]:8080 与 hostname fe80::1 同一比较域', async () => {
+    const verdict = await checkTarget('http://[fe80::1]:8080/', ['[fe80::1]:8080']);
+    expect(verdict).toEqual({ allowed: true });
+    expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it('大小写归一：EXAMPLE.INTERNAL:443 豁免命中小写 hostname（含缺省端口）', async () => {
+    mockLookup.mockImplementation(async () => [{ address: '172.16.0.5', family: 4 }]);
+    const verdict = await checkTarget('https://example.internal/', ['EXAMPLE.INTERNAL:443']);
+    expect(verdict).toEqual({ allowed: true });
+  });
+});

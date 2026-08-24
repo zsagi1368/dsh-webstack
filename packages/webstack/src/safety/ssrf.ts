@@ -131,12 +131,28 @@ function ipv6Hextets(ip: string): readonly number[] | null {
   return [...head, ...Array.from({ length: fill }, () => 0), ...tail];
 }
 
-/** 纯 IPv6 分类：仅清单化 ::1/fc00::/7/fe80::/10 与未指定地址 ::。 */
+/**
+ * 纯 IPv6 分类：仅清单化 ::1/fc00::/7/fe80::/10 与未指定地址 ::。
+ * W10 审计加固：`::ffff:<v4>` 的**十六进制缩写形态**（如 `::ffff:7f00:1`，
+ * 即 inet_ntop 对映射地址的规范输出）与点分形态同权——剥 `::ffff:0:0/96`
+ * 前缀后完全按 v4 规则判定；NAT64 已知前缀 `64:ff9b::/96` 按 fail-closed
+ * 归入 reserved（其尾嵌 v4 经网关可折返内网）。
+ */
 function classifyV6(groups: readonly number[]): IpClass {
   const last = groups[7] ?? 0;
   const allZeroExceptLast = groups.every((g, i) => i === 7 || g === 0);
   if (allZeroExceptLast) return last === 1 ? 'loopback' : 'reserved'; // ::1 与 ::
   const first = groups[0] ?? 0;
+  if (first === 0x64 && (groups[1] ?? 0) === 0xff9b) {
+    // 64:ff9b::/96（RFC 6052 NAT64 已知前缀）：尾 32 位经网关折返可达任意
+    // v4（含内网），一律按 reserved fail-closed 处理。
+    return 'reserved';
+  }
+  if ((groups[5] ?? 0) === 0xffff && groups.every((g, i) => i >= 5 || g === 0)) {
+    // IPv4 映射前缀（::ffff:0:0/96）：按内嵌 v4 复判，堵十六进制缩写绕过。
+    const v4 = (((groups[6] ?? 0) << 16) | last) >>> 0;
+    return classifyV4(v4);
+  }
   if (first >= 0xfc00 && first <= 0xfdff) return 'private'; // fc00::/7 ULA
   if (first >= 0xfe80 && first <= 0xfebf) return 'link-local'; // fe80::/10
   return 'public';
@@ -165,7 +181,10 @@ interface Exemption {
   cidr?: { base: number; bits: number };
 }
 
-/** 解析豁免条目；无法识别的条目安全忽略（豁免宁缺勿滥）。 */
+/**
+ * 解析豁免条目；无法识别的条目安全忽略（豁免宁缺勿滥）。host 侧容忍
+ * `[::1]:8080` 方括号形态（与 URL hostname 的无括号规范形对齐）。
+ */
 function parseExemptions(entries: readonly string[]): Exemption[] {
   const list: Exemption[] = [];
   for (const raw of entries) {
@@ -181,8 +200,10 @@ function parseExemptions(entries: readonly string[]): Exemption[] {
     }
     const colon = entry.lastIndexOf(':');
     if (colon > 0) {
-      const host = entry.slice(0, colon);
+      let host = entry.slice(0, colon);
       const port = entry.slice(colon + 1);
+      // 方括号 IPv6 字面量剥壳：'[::1]' 与 URL hostname '::1' 同一比较域。
+      if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1);
       if (/^\d{1,5}$/.test(port)) {
         list.push({ host, port });
         continue;
@@ -193,12 +214,26 @@ function parseExemptions(entries: readonly string[]): Exemption[] {
   return list;
 }
 
+/** scheme 缺省端口（豁免 `host:port` 对缺省端口 URL 的等价匹配用）。 */
+function defaultPortOf(protocol: string): string {
+  if (protocol === 'https:') return '443';
+  if (protocol === 'http:') return '80';
+  return '';
+}
+
 /** host:port 形态豁免是否命中当前 URL（命中则整段跳过 G2，不做 DNS）。 */
 function hostExempt(parsed: URL, list: readonly Exemption[]): boolean {
-  const hostname = parsed.hostname.toLowerCase();
-  const port = parsed.port;
+  // WHATWG URL 对 IPv6 字面量保留方括号（'[fe80::1]'），剥壳后与豁免条目的
+  // 无括号规范形对齐；缺省端口按 scheme 等价展开——`example.com:443` 必须命中
+  // `https://example.com/`（parsed.port 为空串），否则豁免静默失效。
+  let hostname = parsed.hostname.toLowerCase();
+  if (hostname.startsWith('[') && hostname.endsWith(']')) hostname = hostname.slice(1, -1);
+  const effectivePort = parsed.port === '' ? defaultPortOf(parsed.protocol) : parsed.port;
   return list.some(
-    (e) => e.host !== undefined && e.host === hostname && (e.port === undefined || e.port === port),
+    (e) =>
+      e.host !== undefined &&
+      e.host === hostname &&
+      (e.port === undefined || e.port === parsed.port || e.port === effectivePort),
   );
 }
 
