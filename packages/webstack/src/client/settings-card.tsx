@@ -38,7 +38,7 @@ export interface CardViewState {
 /** 注册面注入的业务脸（hooks 成员被框架绑定为 useWebstackCard 选择器钩子）。 */
 export interface WebstackCardFace {
   hooks: {
-    webstackCard: import('@deepseek-ai/dsh-client-runtime/client').SnapshotStore<CardViewState>;
+    webstackCard: import('@deepseek-ai/dsh-client-store').SnapshotStore<CardViewState>;
   };
   editField: (field: keyof WebstackSettingsShape, value: string | number | boolean) => void;
   save: () => void;

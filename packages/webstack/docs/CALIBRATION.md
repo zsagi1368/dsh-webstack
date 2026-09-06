@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | N1 | registry = npmmirror（内网镜像源） | 安装/CI 全部走镜像；`pnpm publish` 前需确认目标 registry，避免把 rc 包发到错误源 |
 | N2 | peer 策略：`>=0.1.0-rc.2 <0.2.0` | 六个 `@deepseek-ai/*` 平台包统一区间；rc 期内 API 仍可能破坏性演进，故封顶 `<0.2.0` 而非 `^` |
-| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.1-rc.2`），绝不写 `^`/`>=` |
-| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.1-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
+| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.2-alpha.4`），绝不写 `^`/`>=` |
+| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.2-alpha.4`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
 
 ## 2. 平台（宿主）API 事实
 
@@ -50,7 +50,7 @@
    不可复现的快照。
 3. 本仓的解法是「一处覆写、全组织生效」：仓库根 `pnpm-workspace.yaml` 的
    `overrides` 把全部 `@deepseek-ai/*` 条目整体钉到同一基线快照（当前
-   `0.1.1-rc.2`）。overrides 的优先级高于任何 manifest 内的 semver 表达
+   `0.1.2-alpha.4`）。overrides 的优先级高于任何 manifest 内的 semver 表达
    （含 devDependencies 的精确钉），peer 自动安装一次到位。
 4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.2.0`）是本包**对外承诺的
    兼容窗口**；overrides 基线是**开发与测试实际对齐的确定快照**。不变式：

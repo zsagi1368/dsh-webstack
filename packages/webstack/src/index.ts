@@ -18,7 +18,9 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis';
-import { installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings';
+// 类型-only：alpha.4 起 ctx.settings 服务与 SettingsProvider 类型由 dsh-settings
+// 的 declare module 合并提供（旧 installSettingsSection/settingsNamespace 已删除）。
+import type {} from '@deepseek-ai/dsh-settings';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import type {} from '@deepseek-ai/dsh-web';
 import z from '@deepseek-ai/schemastery';
@@ -156,8 +158,8 @@ export const Config: z<PluginConfig> = z.object({
 /** 宿主 locale 未暴露探测 API——默认中文，TODO(W2-PLATFORM): 跟随宿主语言设置。 */
 const HOST_LOCALE: 'zh' | 'en' = 'zh';
 
-/** 设置命名空间（settings.yaml 的 `webstack:` 段）。 */
-const SETTINGS_NS = settingsNamespace('webstack');
+/** 设置命名空间（settings.yaml 的 `webstack:` 段）。alpha.4 起为字面量（settings.register 要求小写连字符标识符）。 */
+const SETTINGS_NS = 'webstack';
 
 // ---------------------------------------------------------------------------
 // 可测试的纯装配辅助（导出面供回归测试直接消费）
@@ -486,21 +488,21 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   };
 
   // ---- settings seam：配置节安装 + 热生效（W-B-74/75）---------------------
-  // installSettingsSection 内部 ctx.inject(['settings'])，服务缺席时整体不挂载，
-  // 回落组合入口配置——能力缺失降级而非报错。
+  // alpha.4：installSettingsSection/settingsNamespace 已删除，改用
+  // ctx.inject(['settings']) + settings.register()。服务缺席时回调不执行，
+  // 回落组合入口配置——能力缺失降级而非报错（与旧语义一致）。
   let source: () => PluginConfig = () => ({ ...config });
   let refreshStatusSection: () => void = () => {};
-  installSettingsSection(ctx, SETTINGS_NS, Config, config, {
-    setSource: (current) => {
-      source = () => current() as PluginConfig;
-    },
-    onChange: () => {
-      // 设置文档是唯一事实源：热刷新改写装配层闭包持有的当前配置视图。
+  ctx.inject(['settings'], (settingsCtx) => {
+    const scope = settingsCtx.settings.register(SETTINGS_NS, Config);
+    source = () => scope.get() as PluginConfig;
+    // 热生效：设置文档是唯一事实源，watcher 与 settings 服务同生命周期。
+    scope.watch(() => {
       const live = source();
       rewriteInPlace(config, live);
       refresh();
       refreshStatusSection();
-    },
+    });
   });
 
   // ---- systemPrompt seam：守则节 + 动态状态节（W-B-90~92）-----------------

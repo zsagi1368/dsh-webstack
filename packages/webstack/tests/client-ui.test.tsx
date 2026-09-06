@@ -4,7 +4,7 @@
  * 密钥零回显与双语字典键奇偶一致。
  */
 
-import type { SnapshotStore } from '@deepseek-ai/dsh-client-runtime/client';
+import type { SnapshotStore } from '@deepseek-ai/dsh-client-store';
 import { createElement, useSyncExternalStore } from 'react';
 import { renderToString } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -133,7 +133,6 @@ describe('input-toggle：三态循环与冒烟', () => {
   it('renderToString：本地态降级渲染初始态与本地提示', () => {
     const html = renderToString(
       createElement(OnlineModeToggle, {
-        sessionId: 's1',
         t: ((key: string) => (toggleZh as Record<string, string>)[key] ?? key) as never,
       }),
     );
@@ -145,7 +144,6 @@ describe('input-toggle：三态循环与冒烟', () => {
   it('renderToString：宿主通道接通时渲染注入的初始态', () => {
     const html = renderToString(
       createElement(OnlineModeToggle, {
-        sessionId: 's1',
         initial: 'ask',
         requestChange: () => true,
         t: ((key: string) => (toggleEn as Record<string, string>)[key] ?? key) as never,

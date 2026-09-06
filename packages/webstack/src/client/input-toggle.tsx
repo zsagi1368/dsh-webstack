@@ -37,9 +37,8 @@ const MODE_KEY: Record<SessionOnlineMode, ToggleKey> = {
   ask: 'modeAsk',
 };
 
-/** 组件 props：框架标准座席（sessionId/t）+ 可选的宿主写入通道。 */
+/** 组件 props：框架标准座席（t）+ 可选的宿主写入通道。alpha.4 起框架标准座不再注入 sessionId。 */
 export interface OnlineModeToggleProps {
-  sessionId: string;
   t: TranslateNS<'webstack.toggle'>;
   /** 初始态；宿主可读时由装配层从快照注入，缺省 off。 */
   initial?: SessionOnlineMode | undefined;

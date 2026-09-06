@@ -59,10 +59,10 @@ jobs:
           echo "baseline=${DSH_BASELINE} resolves to ${NEXT_VERSION}"
       - name: Re-pin overrides map to next baseline
         run: |
-          # pnpm.overrides 全量钉在 0.1.1-rc.2；`--config.overrides-map` 不可
+          # pnpm.overrides 全量钉在 0.1.2-alpha.4；`--config.overrides-map` 不可
           # CLI 覆写，故临时 sed 整体替换为 next 解析版（只动工作区文件，
           # 不回写提交）。devDeps 精确钉同样被 overrides 优先级覆盖。
-          sed -i "s|0\.1\.1-rc\.2|${DSH_NEXT_VERSION}|g" pnpm-workspace.yaml
+          sed -i "s|0\.1\.2-alpha\.4|${DSH_NEXT_VERSION}|g" pnpm-workspace.yaml
           grep -n '@deepseek-ai/dsh-web' pnpm-workspace.yaml
       - name: Install against next baseline (unfrozen)
         run: pnpm install --no-frozen-lockfile

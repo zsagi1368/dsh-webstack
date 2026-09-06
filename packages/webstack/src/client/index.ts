@@ -18,12 +18,16 @@
  */
 
 import type {} from '@deepseek-ai/dsh-client-locale/client';
+import type { Context as ClientContext } from '@deepseek-ai/cordis';
+// 类型-only：ctx.slots 注册表类型由 ui-renderer 提供（alpha.4 起）。
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
+// 类型-only：alpha.4 起 client 侧快照式 SettingsScope 契约由 ui-settings 提供
+// （原 dsh-client-runtime/client 导出，包删除后迁移至此；getSnapshot/subscribe/set 面不变）。
+import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 import {
-  type ClientContext,
   createSnapshotStore,
-  type SettingsScope,
   type SnapshotStore,
-} from '@deepseek-ai/dsh-client-runtime/client';
+} from '@deepseek-ai/dsh-client-store';
 // 类型-only：把 conversation.input.* 的 SlotMap 声明并入本编译程序。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-client-ui-slots';

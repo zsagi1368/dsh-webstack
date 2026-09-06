@@ -5,3 +5,6 @@ coverage/
 *.tgz
 .env
 .DS_Store
+
+# Backup area (deletion right belongs to user, agents never clean it)
+del/
