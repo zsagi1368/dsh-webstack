@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | N1 | registry = npmmirror（内网镜像源） | 安装/CI 全部走镜像；`pnpm publish` 前需确认目标 registry，避免把 rc 包发到错误源 |
 | N2 | peer 策略：`>=0.1.0-rc.2 <0.2.0` | 六个 `@deepseek-ai/*` 平台包统一区间；rc 期内 API 仍可能破坏性演进，故封顶 `<0.2.0` 而非 `^` |
-| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.2-alpha.4`），绝不写 `^`/`>=` |
-| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.2-alpha.4`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
+| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.2-rc.1`），绝不写 `^`/`>=` |
+| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.2-rc.1`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
 
 ## 2. 平台（宿主）API 事实
 
@@ -50,7 +50,7 @@
    不可复现的快照。
 3. 本仓的解法是「一处覆写、全组织生效」：仓库根 `pnpm-workspace.yaml` 的
    `overrides` 把全部 `@deepseek-ai/*` 条目整体钉到同一基线快照（当前
-   `0.1.2-alpha.4`）。overrides 的优先级高于任何 manifest 内的 semver 表达
+   `0.1.2-rc.1`）。overrides 的优先级高于任何 manifest 内的 semver 表达
    （含 devDependencies 的精确钉），peer 自动安装一次到位。
 4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.2.0`）是本包**对外承诺的
    兼容窗口**；overrides 基线是**开发与测试实际对齐的确定快照**。不变式：
@@ -70,3 +70,57 @@
    `DSH_BASELINE=next` 动态解析 dist-tag 并临时 sed 替换映射后重装，只跑
    webstack typecheck + `kernel-types.test.ts` 契约结构断言；红 = 上游漂移
    警报（不阻塞主矩阵，但升级前必须先看它）。
+
+## 5. 基线 0.1.2-rc.1 与 0.1.3 一次性验证记录（2026-09-07）
+
+**承诺态**：`pnpm-workspace.yaml` 213 条 overrides + webstack devDeps 18 条
+由 `0.1.2-alpha.4` 整体替换为 `0.1.2-rc.1`（精确钉，无 `^`）；peer 区间 N2
+不变（semver 实测 `0.1.2-rc.1` ∈ `>=0.1.0-rc.2 <0.2.0`）。registry 实测：
+`@deepseek-ai/dsh-web` 的 next tag = `0.1.2-rc.1`，versions 无 0.1.3。
+回归：`pnpm -r run check` EXIT=0（684+21+56 = 761 测试全过）、`pnpm lint`
+EXIT=0、`pnpm install --frozen-lockfile` 可复现。
+
+**一次性本地 0.1.3 验证（非承诺态，验证后已还原）**：临时把 28 个实际解析的
+`@deepseek-ai/dsh-*` overrides 连同 cordis、schemastery（主仓 vendored
+4.0.2 / 3.18.2，统一双身份避免 Context 增广分裂）指向本地主仓
+`zDSH-main` 工作树（HEAD `59a5f3ca61`，包版本 `0.1.3-alpha.1`），三轮
+typecheck：
+
+| 轮次 | 配置 | 结果 |
+| --- | --- | --- |
+| RUN01 | 默认（skipLibCheck:true），全 workspace typecheck | **EXIT=0，0 错误** → 插件源码对 0.1.3 类型兼容 |
+| RUN02 | skipLibCheck:false（monorepo 图视图） | 17 错误，全部位于第三方/主仓 d.ts（tsdown 工具链可选依赖 TS2307、主仓内部链 `dsh-util-values` TS2307、@types/react 双身份 TS2300、主仓内部类型漂移 TS2344/TS2717、MCP SDK TS2420）；**插件 src/tests 自身 0 错误** |
+| RUN03 | skipLibCheck:false + preserveSymlinks（隔离视图） | 149 错误，主体为 vitest 内部模块解析级联（TS2307/TS2882 → tests 文件隐式 any TS7006）；插件 src 0 错误；FileHub R4 隔离视图同型 |
+
+日志与证据：仓根 `del/20260907-113907-0131-adapt/evidence/verify-0131/`
+（含 V1 解析路径清单：被解析 d.ts 指向主仓工作树而非 registry 缓存）。
+验证后还原承诺态，workspace yaml / lockfile 与验证前快照逐字节一致。
+
+**file-upload 链判定（与 FileHub R4 同判定）**：主仓
+`@deepseek-ai/dsh-client-ui-conversation` 的构建产物
+`lib/types/client/contract/slots.d.ts:5` 引用
+`@deepseek-ai/dsh-client-file-upload/client`，而该包只列在 ui-conversation
+的 **devDependencies**（dependencies 中无）→ registry 消费者永远装不到 =
+**上游打包缺陷，非插件问题**。link 视图下该链可经主仓嵌套 node_modules
+解析，故 RUN02/03 未命中 file-upload 的 TS2307；缺陷由 manifest 事实证成，
+不依赖 link 复现。
+
+**未来切换说明（官方发布 0.1.3 后）**：
+
+1. 按 §4 五步把基线 `0.1.2-rc.1` → `0.1.3` 整体替换（213 条 overrides +
+   18 条 devDeps + ci.yml sed 锚点 + 本文档措辞），不做逐包混搭；
+2. peer 区间已含 0.1.3（semver 实测），N2 不动；
+3. **webstack devDeps 须补钉 `@deepseek-ai/dsh-client-file-upload`**——
+   否则 ui-conversation d.ts 的 file-upload 链对 registry 消费者不可解析
+   （上游缺陷，见上）；默认 skipLibCheck:true 下被抑制，关断即暴露 TS2307；
+4. 切换后重跑 `pnpm -r run check && pnpm lint` + `--frozen-lockfile` 验证。
+
+**哨兵盲区（已记录残留风险）**：`upgrade-smoke` 只盯 `next` dist-tag；若官方
+发布 0.1.3 stable 而**不移动 next tag**，哨兵盯不到。切换前须人工核对
+`pnpm view @deepseek-ai/dsh-web versions`（2026-09-07 实测 versions 无 0.1.3、
+next = 0.1.2-rc.1）。
+
+**措辞纪律**：当前状态表述为「对齐 `0.1.2-rc.1` 基线 + 已对本地主仓
+`0.1.3-alpha.1` 完成一次性 typecheck 验证」；在官方 0.1.3 发布并完成基线
+切换之前，**禁写「已适配 0.1.3」**。
+

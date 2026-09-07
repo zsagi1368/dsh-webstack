@@ -31,7 +31,7 @@ await fiber;                               // ② 自身插件 fiber 也要 awai
 ## G3. dsh-invariants 没有 stable 版可匹配 peer 区间
 
 `@deepseek-ai/dsh-invariants` 只在 next tag 发布 rc 版本（如
-`0.1.2-alpha.4`），不存在能命中 `>=0.1.0-rc.2 <0.2.0` 区间的 stable 版。
+`0.1.2-rc.1`），不存在能命中 `>=0.1.0-rc.2 <0.2.0` 区间的 stable 版。
 因此它**只能放 devDependencies 并精确钉死版本号**（不带 `^`/`>=`），
 不能进 peerDependencies——否则安装器永远解析失败。
 其余平台包 devDeps 同理钉精确快照，保证类型断言对象确定。

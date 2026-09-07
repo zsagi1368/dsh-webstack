@@ -36,6 +36,8 @@ jobs:
   # packages/webstack 的 typecheck + tests/kernel-types.test.ts 契约结构断言。
   # 失败即本 job 红（continue-on-error: false）；本 job 与 check 矩阵无依赖边，
   # 并行执行，因此冒烟红不阻塞主矩阵（分支保护可单独决定是否必过）。
+  # 盲区（CALIBRATION.md §5）：只盯 next dist-tag——若官方发布 0.1.3 stable 而
+  # 不移动 next，本哨兵盯不到；基线切换前须人工核对 pnpm view versions。
   upgrade-smoke:
     runs-on: ubuntu-latest
     continue-on-error: false
@@ -59,10 +61,10 @@ jobs:
           echo "baseline=${DSH_BASELINE} resolves to ${NEXT_VERSION}"
       - name: Re-pin overrides map to next baseline
         run: |
-          # pnpm.overrides 全量钉在 0.1.2-alpha.4；`--config.overrides-map` 不可
+          # pnpm.overrides 全量钉在 0.1.2-rc.1；`--config.overrides-map` 不可
           # CLI 覆写，故临时 sed 整体替换为 next 解析版（只动工作区文件，
           # 不回写提交）。devDeps 精确钉同样被 overrides 优先级覆盖。
-          sed -i "s|0\.1\.2-alpha\.4|${DSH_NEXT_VERSION}|g" pnpm-workspace.yaml
+          sed -i "s|0\.1\.2-rc\.1|${DSH_NEXT_VERSION}|g" pnpm-workspace.yaml
           grep -n '@deepseek-ai/dsh-web' pnpm-workspace.yaml
       - name: Install against next baseline (unfrozen)
         run: pnpm install --no-frozen-lockfile
