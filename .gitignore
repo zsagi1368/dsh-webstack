@@ -14,3 +14,8 @@ del/
 # webstack/bridge lib stay ignored under the global `lib/` rule above.
 !packages/verticals/lib/
 packages/verticals/lib/**/*.map
+
+# TC-B2-2.2a (P-9 Option A): bridge prebuilt lib is checked in (targeted
+# inversion only; the global rules above and the verticals entries are intact).
+!packages/bridge/lib/
+packages/bridge/lib/**/*.map

@@ -44,6 +44,50 @@
     "lint": "biome check .",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
+  "dsh": {
+    "compatible": ">=0.1.5-rc.2 <0.2.0",
+    "autoApprove": true,
+    "capabilities": [
+      {
+        "type": "service",
+        "service": {
+          "name": "dsh-webstack-bridge/bridge",
+          "factory": "./lib/index.js",
+          "singleton": true
+        }
+      }
+    ],
+    "sandbox": {
+      "type": "inline",
+      "resources": {
+        "memoryLimitMb": 256,
+        "cpuLimit": 50,
+        "timeoutMs": 30000,
+        "maxOutputBytes": 10000
+      },
+      "filesystem": {
+        "access": "readonly",
+        "allowedPaths": [],
+        "deniedPatterns": []
+      },
+      "network": {
+        "access": "internal",
+        "allowedHosts": [],
+        "deniedHosts": [],
+        "allowLocal": true
+      },
+      "environment": {
+        "whitelist": [],
+        "blacklist": [],
+        "clear": false
+      },
+      "process": {
+        "spawn": false,
+        "exec": false,
+        "allowedCommands": []
+      }
+    }
+  },
   "dependencies": {
     "ws": "^8.18.0"
   },
