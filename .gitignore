@@ -2,9 +2,15 @@ node_modules/
 lib/
 dist/
 coverage/
+
 *.tgz
 .env
 .DS_Store
 
 # Backup area (deletion right belongs to user, agents never clean it)
 del/
+
+# TC-B2-S1a (P-9 Option A): verticals prebuilt lib is checked in;
+# webstack/bridge lib stay ignored under the global `lib/` rule above.
+!packages/verticals/lib/
+packages/verticals/lib/**/*.map
