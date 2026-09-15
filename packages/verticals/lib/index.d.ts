@@ -120,6 +120,48 @@ declare class VerticalRegistry {
   canRun(id: string, hints: SearchHints): boolean;
 }
 //#endregion
+//#region src/cordis.d.ts
+/** Loader/registry 记录名（`registry.ts:322` 取 `plugin.name`）。 */
+declare const name = "dsh-webstack-verticals";
+/**
+ * 无硬注入服务（对齐 f4c 判据「填 inject 即成硬依赖、缺服务装载即挂」）：
+ * 频道两腿依赖全部经 `VerticalDeps` 在**调用期**显式注入（`run(req, deps)`），
+ * mount 期不解析任何宿主服务；dsh-webstack peer 缺席也不影响挂载。
+ */
+declare const inject: readonly string[];
+/**
+ * 宿主 ctx 的结构化子集（刻意不 `import type { Context }`，理由见文件头注）。
+ * 仅声明本入口实际用到的两面：`provide`（注册命名服务）与可选 `effect`
+ * （随 fiber 卸载释放注册）。
+ */
+interface CordisContextLike {
+  /** cordis 服务注册面（f4c/bridge 同款调用：`ctx.provide(name, service)`）。 */
+  provide(name: string, service: unknown): void;
+  /** 可选 teardown 登记；裸 ctx（单测）缺位时静默跳过。 */
+  effect?(teardown: () => unknown, label?: string): unknown;
+}
+/** `apply` 的可选配置。seed 通道今日不灌 config（§8-ADJ-3），缺省即挂载。 */
+interface XVerticalConfig {
+  /** 显式关闭位：`false` 时不注册服务（默认关态纪律在 seed/设置面，非本闸）。 */
+  enabled?: boolean;
+}
+/** `x-vertical` 服务的对外形状：注册表 + 频道实例 + 判定便捷面。 */
+interface XVerticalService {
+  /** 频道注册表（后续增量频道经 `register` 并入同一实例）。 */
+  readonly registry: VerticalRegistry;
+  /** 本役唯一出厂频道（id = `x-vertical`）。 */
+  readonly channel: VerticalChannel;
+  /** 路由判定便捷面：`registry.canRun(X_VERTICAL_ID, hints)` 的闭包。 */
+  canHandle(hints: SearchHints): boolean;
+}
+/**
+ * 挂载 x-vertical 服务：new VerticalRegistry + register(XVerticalChannel) +
+ * `ctx.provide('x-vertical', service)`；disposer 经 `ctx.effect` 随 fiber 卸载。
+ * 同名重复 provide 由 cordis 语义处理；本函数返回注册的服务对象便于宿主/测试
+ * 检视（f4c `mountedFor` 同款意图，此处直接回传、不单设 WeakMap 台账）。
+ */
+declare function apply(ctx: CordisContextLike, config?: XVerticalConfig): XVerticalService | undefined;
+//#endregion
 //#region src/x-search.d.ts
 declare const X_VERTICAL_ID = "x-vertical";
 /** 频道名片：免费档、零凭据、caps.vertical（深冻结防运行期篡改）。 */
@@ -182,4 +224,4 @@ declare class XVerticalChannel implements VerticalChannel {
   private relabel;
 }
 //#endregion
-export { HitProvenance, NormalizedHit, OEMBED_ENDPOINT, OEMBED_MAX_BYTES, OutboundFetchLike, OutboundRequestLike, OutboundResponseLike, SearchHints, VIA_OEMBED, VIA_SITE_SEARCH, VerticalCaps, VerticalChannel, VerticalDeps, VerticalDescriptor, VerticalRegistry, VerticalSearchRequest, XVerticalChannel, X_OEMBED_NOTE_KEY, X_VERTICAL_DESCRIPTOR, X_VERTICAL_ID, buildOembedUrl, buildXSearchQuery, extractTweetUrls, freezeDeep, isTweetUrl };
+export { type CordisContextLike, HitProvenance, NormalizedHit, OEMBED_ENDPOINT, OEMBED_MAX_BYTES, OutboundFetchLike, OutboundRequestLike, OutboundResponseLike, SearchHints, VIA_OEMBED, VIA_SITE_SEARCH, VerticalCaps, VerticalChannel, VerticalDeps, VerticalDescriptor, VerticalRegistry, VerticalSearchRequest, XVerticalChannel, type XVerticalConfig, type XVerticalService, X_OEMBED_NOTE_KEY, X_VERTICAL_DESCRIPTOR, X_VERTICAL_ID, apply, buildOembedUrl, buildXSearchQuery, extractTweetUrls, freezeDeep, inject, isTweetUrl, name };

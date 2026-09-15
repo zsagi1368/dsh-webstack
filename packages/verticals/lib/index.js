@@ -279,4 +279,34 @@ var XVerticalChannel = class {
 	}
 };
 //#endregion
-export { OEMBED_ENDPOINT, OEMBED_MAX_BYTES, VIA_OEMBED, VIA_SITE_SEARCH, VerticalRegistry, XVerticalChannel, X_OEMBED_NOTE_KEY, X_VERTICAL_DESCRIPTOR, X_VERTICAL_ID, buildOembedUrl, buildXSearchQuery, extractTweetUrls, freezeDeep, isTweetUrl };
+//#region src/cordis.ts
+/** Loader/registry 记录名（`registry.ts:322` 取 `plugin.name`）。 */
+const name = "dsh-webstack-verticals";
+/**
+* 无硬注入服务（对齐 f4c 判据「填 inject 即成硬依赖、缺服务装载即挂」）：
+* 频道两腿依赖全部经 `VerticalDeps` 在**调用期**显式注入（`run(req, deps)`），
+* mount 期不解析任何宿主服务；dsh-webstack peer 缺席也不影响挂载。
+*/
+const inject = [];
+/**
+* 挂载 x-vertical 服务：new VerticalRegistry + register(XVerticalChannel) +
+* `ctx.provide('x-vertical', service)`；disposer 经 `ctx.effect` 随 fiber 卸载。
+* 同名重复 provide 由 cordis 语义处理；本函数返回注册的服务对象便于宿主/测试
+* 检视（f4c `mountedFor` 同款意图，此处直接回传、不单设 WeakMap 台账）。
+*/
+function apply(ctx, config = {}) {
+	if ((config.enabled ?? true) === false) return void 0;
+	const registry = new VerticalRegistry();
+	const channel = new XVerticalChannel();
+	const dispose = registry.register(channel);
+	const service = {
+		registry,
+		channel,
+		canHandle: (hints) => registry.canRun(X_VERTICAL_ID, hints)
+	};
+	ctx.provide(X_VERTICAL_ID, service);
+	ctx.effect?.(() => dispose, "x-vertical-dispose");
+	return service;
+}
+//#endregion
+export { OEMBED_ENDPOINT, OEMBED_MAX_BYTES, VIA_OEMBED, VIA_SITE_SEARCH, VerticalRegistry, XVerticalChannel, X_OEMBED_NOTE_KEY, X_VERTICAL_DESCRIPTOR, X_VERTICAL_ID, apply, buildOembedUrl, buildXSearchQuery, extractTweetUrls, freezeDeep, inject, isTweetUrl, name };
