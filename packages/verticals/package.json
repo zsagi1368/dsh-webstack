@@ -44,6 +44,52 @@
     "lint": "biome check .",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
+  "dsh": {
+    "compatible": ">=0.1.5-rc.2 <0.2.0",
+    "autoApprove": true,
+    "capabilities": [
+      {
+        "type": "service",
+        "service": {
+          "name": "dsh-webstack-verticals/x-vertical",
+          "factory": "./lib/index.js",
+          "singleton": true
+        }
+      }
+    ],
+    "sandbox": {
+      "type": "inline",
+      "resources": {
+        "memoryLimitMb": 256,
+        "cpuLimit": 50,
+        "timeoutMs": 30000,
+        "maxOutputBytes": 10000
+      },
+      "filesystem": {
+        "access": "readonly",
+        "allowedPaths": [],
+        "deniedPatterns": []
+      },
+      "network": {
+        "access": "external",
+        "allowedHosts": [
+          "publish.twitter.com"
+        ],
+        "deniedHosts": [],
+        "allowLocal": false
+      },
+      "environment": {
+        "whitelist": [],
+        "blacklist": [],
+        "clear": false
+      },
+      "process": {
+        "spawn": false,
+        "exec": false,
+        "allowedCommands": []
+      }
+    }
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "dsh-webstack": "workspace:*"
