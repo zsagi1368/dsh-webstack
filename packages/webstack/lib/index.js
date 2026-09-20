@@ -4212,21 +4212,49 @@ function emptyBitmap() {
 	};
 }
 /**
+* 守卫式 seam 读（W1b2 扩面修，W3-F1 同根因处置；单源共用函数——index.ts
+* 的 peekService 自 W1b2 起收敛为本实现的薄封装）。
+*
+* 真 cordis context proxy 对未声明 inject 的服务做**属性读会抛错**而非返回
+* undefined（reflect.ts get trap：`cannot get property "…" without inject`），
+* 裸属性读+try/catch 吞错会让 settings/credentials/storage 诊断位在生产装载
+* 通道恒假阴性（审计面对真实宿主误报缺席）。修形=双通道：
+*
+* ① `ctx.get(key)` 优先——cordis 文档化逃生门「Read a service from the store
+*   without the inject requirement」（strict 缺省 true=只解析 ACTIVE fiber 的
+*   实现；返回 getTraceable 包装=注册面 fiber 托管随动，RA1d 结论不变）；
+* ② get 缺席或无值时属性读回退——保两类兼容面：plain-object mock ctx（无 get
+*   面，属性直读本就安全）与真 Context 上的属性赋值假面（自有属性经 get trap
+*   `Reflect.has` 放行、但对 ctx.get 的 store 查找不可见——实证）。
+*
+* 两通道各自 try/catch 吞错：任何异常=服务缺席=undefined（降级梯哲学不变，
+* 探测永不抛=W-B-47 缺失分支，逐项兜底）。
+*/
+function peekServiceValue(ctx, key) {
+	if (typeof ctx !== "object" || ctx === null) return void 0;
+	const holder = ctx;
+	try {
+		const get = holder.get;
+		if (typeof get === "function") {
+			const viaGet = get.call(holder, key);
+			if (viaGet !== void 0) return viaGet;
+		}
+	} catch {}
+	try {
+		return holder[key];
+	} catch {
+		return;
+	}
+}
+/**
 * 对未知宿主上下文做结构探测。只做 `typeof === 'function'` 级廉价检查，
-* 不触发任何服务实例化或网络行为。cordis 的未装载服务属性在访问时会
-* **抛错**而非返回 undefined——探测永不抛（W-B-47 缺失分支），逐项兜底。
+* 不触发任何服务实例化或网络行为。服务读取经 peekServiceValue 守卫式 seam
+* （W1b2，W3-F1 同根因处置）——探测永不抛（W-B-47 缺失分支），逐项兜底。
 */
 function probeCapabilities(ctx) {
 	const bitmap = emptyBitmap();
 	if (typeof ctx !== "object" || ctx === null) return bitmap;
-	const record = ctx;
-	const peek = (key) => {
-		try {
-			return record[key];
-		} catch {
-			return;
-		}
-	};
+	const peek = (key) => peekServiceValue(ctx, key);
 	const web = peek("web");
 	bitmap.webSeam = typeof web?.registerSearchProvider === "function" && typeof web?.registerFetchProvider === "function";
 	const isObjectLike = (value) => typeof value === "object" && value !== null;
@@ -4929,41 +4957,20 @@ function buildEngineRegistry(config, hooks) {
 	};
 }
 /**
-* 安全读取可能未装载的 cordis 服务（W3-F1 守卫式 seam，RA1c 同族修形）。
+* 安全读取可能未装载的 cordis 服务（W3-F1 守卫式 seam，RA1c 同族修形；W1b2
+* 起逻辑单源=kernel/capability.ts `peekServiceValue`，本函数只做 Record 收窄，
+* 行为与 W1b 首轮双通道形逐字等价）。
 *
-* 真 cordis context proxy 对未声明 inject 的服务做**属性读会抛错**而非返回
-* undefined（reflect.ts get trap：`cannot get property "…" without inject`）——
-* 旧纯属性读形制下 try/catch 把抛错吞成 undefined，全部可选 seam 在生产装载
-* 通道静默降级（W3-F1：真 ToolRuntime 在场而三工具零注册）。修形=双通道：
-*
-* ① `ctx.get(key)` 优先——cordis 文档化逃生门「Read a service from the store
-*   without the inject requirement」（strict 缺省 true：只解析 ACTIVE fiber 的
-*   实现；返回 getTraceable 包装=经 seam 的注册面仍 fiber 托管，RA1d 核查
-*   结论不变）；
-* ② 属性读回退——保两类兼容面：plain-object mock ctx（无 get 面，属性直读
-*   本就安全）与真 Context 上的属性赋值假面（自有属性经 get trap
-*   `Reflect.has` 放行、但对 ctx.get 的 store 查找不可见——既有契约/装配
-*   测试拓扑）。
-*
-* 两通道各自 try/catch，吞错语义保持（降级梯哲学不变：任何异常/非对象值=
-* 服务缺席=undefined，装配继续走降级路径）。
+* 形制详注见 peekServiceValue JSDoc：① `ctx.get(key)` 优先（cordis 文档逃生门
+* 「Read a service from the store without the inject requirement」，strict 缺省
+* true=只解析 ACTIVE fiber 实现；返回 getTraceable 包装=经 seam 的注册面仍
+* fiber 托管，RA1d 核查结论不变）；② get 缺席或无值时属性读回退（plain-object
+* mock 与真 Context 属性赋值假面兼容）。两通道各自 try/catch，吞错语义保持
+* （降级梯哲学不变：任何异常/非对象值=服务缺席=undefined，装配继续走降级路径）。
 */
 function peekService(ctx, key) {
-	if (typeof ctx !== "object" || ctx === null) return void 0;
-	const holder = ctx;
-	const asRecord = (value) => typeof value === "object" && value !== null ? value : void 0;
-	try {
-		const get = holder.get;
-		if (typeof get === "function") {
-			const viaGet = asRecord(get.call(holder, key));
-			if (viaGet !== void 0) return viaGet;
-		}
-	} catch {}
-	try {
-		return asRecord(holder[key]);
-	} catch {
-		return;
-	}
+	const value = peekServiceValue(ctx, key);
+	return typeof value === "object" && value !== null ? value : void 0;
 }
 /** 探测宿主 credentials 域（resolve 为函数才算在线）。 */
 function peekCredentials(ctx) {

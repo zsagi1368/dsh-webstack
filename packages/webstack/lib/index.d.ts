@@ -836,8 +836,8 @@ declare function renderDoctor(report: DoctorReport, locale?: Locale): string;
 //#region src/kernel/capability.d.ts
 /**
  * 对未知宿主上下文做结构探测。只做 `typeof === 'function'` 级廉价检查，
- * 不触发任何服务实例化或网络行为。cordis 的未装载服务属性在访问时会
- * **抛错**而非返回 undefined——探测永不抛（W-B-47 缺失分支），逐项兜底。
+ * 不触发任何服务实例化或网络行为。服务读取经 peekServiceValue 守卫式 seam
+ * （W1b2，W3-F1 同根因处置）——探测永不抛（W-B-47 缺失分支），逐项兜底。
  */
 declare function probeCapabilities(ctx: unknown): CapabilityBitmap;
 /**
