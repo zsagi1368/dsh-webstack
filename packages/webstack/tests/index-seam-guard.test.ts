@@ -40,6 +40,7 @@ import {
   Config,
   inject,
   name,
+  probeCapabilities,
   type WebstackAssembly,
 } from '../src/index.ts';
 
@@ -265,5 +266,126 @@ describe('锁⑤（增补）真 cordis fiber 机制重演：真 provide + 真 We
     const fiber = ctx.plugin({ name, inject, Config, apply }, {});
     await fiber;
     expect(tools.registered.map((d) => d.name)).toEqual(TOOL_NAMES);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// W1b2 增量轮（主线初轮收卡裁定：偏差 #2 扩面=扩）：probeCapabilities 守卫式
+// seam 三锁。位图消费点清单结论（回执 §9.2，行为面守护条款）：settingsSection /
+// credentialsDomain / storageService = 纯诊断位（仅加载标记日志；runDoctor 对
+// bitmap 键零读取）；唯一功能消费 = webSeam（provider 注册门 :680 + deriveTierMode
+// tier 输入）——web 系声明 inject，双通道修形下生产解析同一 impl、既有测试拓扑
+// 经回退通道逐字保旧，取值语义修前修后不变。聚合/路由/融合行为零改动。
+// ---------------------------------------------------------------------------
+
+/** 修前旧形制逐字复刻（c1b24d4 kernel/capability.ts:29-49 probeCapabilities 本体）——W1b2 负对照夹具。 */
+function legacyProbeCapabilities(ctx: unknown): {
+  webSeam: boolean;
+  settingsSection: boolean;
+  credentialsDomain: boolean;
+  storageService: boolean;
+} {
+  const bitmap = {
+    webSeam: false,
+    settingsSection: false,
+    credentialsDomain: false,
+    storageService: false,
+  };
+  if (typeof ctx !== 'object' || ctx === null) return bitmap;
+  const record = ctx as Record<string, unknown>;
+  const peek = (key: string): unknown => {
+    try {
+      return record[key];
+    } catch {
+      return undefined;
+    }
+  };
+  const web = peek('web') as Record<string, unknown> | undefined;
+  bitmap.webSeam =
+    typeof web?.registerSearchProvider === 'function' &&
+    typeof web?.registerFetchProvider === 'function';
+  const isObjectLike = (value: unknown): boolean => typeof value === 'object' && value !== null;
+  bitmap.settingsSection = isObjectLike(peek('settings'));
+  bitmap.credentialsDomain = isObjectLike(peek('credentials'));
+  bitmap.storageService = isObjectLike(peek('storage'));
+  return bitmap;
+}
+
+/** 锁⑥⑧共用 get 解析面：四服务经 store 解析（生产姿态=宿主 provide 后的 ACTIVE 实现）。 */
+function w1b2GetImpl(web: { face: Record<string, unknown> }): (service: string) => unknown {
+  return (service) => {
+    if (service === 'web') return web.face;
+    if (service === 'settings') return { register: (): void => {} };
+    if (service === 'credentials') return { resolve: (): undefined => undefined };
+    if (service === 'storage') return {};
+    return undefined;
+  };
+}
+
+describe('W1b2 锁⑥ 生产门控正例：gated ctx 下 settings/credentials/storage 位诚实反映 get 解析结果', () => {
+  it('get 面解析下四诊断位全 true（审计面诚实）；get 无值时诚实 false（位不虚报）', () => {
+    const web = fakeWebFace();
+    const ctx = gatedCtx({ get: w1b2GetImpl(web), faces: { logger: fakeLogger().face } });
+    const bitmap = probeCapabilities(ctx);
+    expect(bitmap.webSeam).toBe(true);
+    expect(bitmap.settingsSection).toBe(true);
+    expect(bitmap.credentialsDomain).toBe(true);
+    expect(bitmap.storageService).toBe(true);
+    // 诚实性另一面：get 恒 undefined + 门控属性读抛错 → 各位如实 false。
+    const emptyCtx = gatedCtx({ get: () => undefined, faces: { logger: fakeLogger().face } });
+    const empty = probeCapabilities(emptyCtx);
+    expect(empty.webSeam).toBe(false);
+    expect(empty.settingsSection).toBe(false);
+    expect(empty.credentialsDomain).toBe(false);
+    expect(empty.storageService).toBe(false);
+  });
+});
+
+describe('W1b2 锁⑦ mock 属性形兼容不回归：plain-object ctx（无 get 面）位图语义零变化', () => {
+  it('属性直读全位 true（kernel-capability.test.ts 基线形同走回退通道）', () => {
+    const bitmap = probeCapabilities({
+      web: { registerSearchProvider: () => {}, registerFetchProvider: () => {} },
+      settings: {},
+      credentials: {},
+      storage: {},
+    });
+    expect(bitmap).toMatchObject({
+      webSeam: true,
+      settingsSection: true,
+      credentialsDomain: true,
+      storageService: true,
+      selectorPatchable: false,
+    });
+  });
+
+  it('真 Context 属性赋值假面：get 面在场而 store 不可见 → 回退通道命中（偏差 #1 保护同拓扑）', () => {
+    const ctx = new Context();
+    const record = ctx as unknown as Record<string, unknown>;
+    record.settings = {};
+    record.credentials = {};
+    // 拓扑自证（回执 §1.4 探针 A）：属性赋值假面对 ctx.get 不可见。
+    expect(ctx.get('settings')).toBeUndefined();
+    const bitmap = probeCapabilities(ctx);
+    expect(bitmap.settingsSection).toBe(true);
+    expect(bitmap.credentialsDomain).toBe(true);
+  });
+});
+
+describe('W1b2 锁⑧ 负对照：旧裸属性读形制在同一 gated ctx 下诊断位恒 false（审计面假象复现=判别力自证）', () => {
+  it('同一锁⑥ ctx：旧形三位+webSeam 恒 false、新形全 true——新旧在同一面上判别成立', () => {
+    const web = fakeWebFace();
+    const ctx = gatedCtx({ get: w1b2GetImpl(web), faces: { logger: fakeLogger().face } });
+    // 旧形制（c1b24d4 逐字）：门控属性读抛错被吞 → 生产装载通道诊断面恒假象。
+    const legacy = legacyProbeCapabilities(ctx);
+    expect(legacy.webSeam).toBe(false);
+    expect(legacy.settingsSection).toBe(false);
+    expect(legacy.credentialsDomain).toBe(false);
+    expect(legacy.storageService).toBe(false);
+    // 对照腿：同一 ctx 过修后 probeCapabilities → 全位诚实 true。
+    const fixed = probeCapabilities(ctx);
+    expect(fixed.webSeam).toBe(true);
+    expect(fixed.settingsSection).toBe(true);
+    expect(fixed.credentialsDomain).toBe(true);
+    expect(fixed.storageService).toBe(true);
   });
 });
