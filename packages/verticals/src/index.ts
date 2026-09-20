@@ -6,7 +6,8 @@
  * （见 cordis.ts），使治理宿主 `loader.create({name:<lib/index.js fileURL>})`
  * 能通过 cordis registry 校验（M-F1 判据），并以 `x-vertical` 服务名注册
  * 默认频道。装配语义 = 构造 + 注册 + provide，零网络零定时器。默认关闭纪律
- * 由 seed 的 `enabledAtBoot`（批次 2.3 翻转）与 webstack 设置面
+ * 由 seed 的 `enabledAtBoot`（生产恒 false，fix9/RA-2 终态；可挂性由 gate-p
+ * P5 沙箱强制 mount 证明）与 webstack 设置面
  * （verticals.packEnabled / channels.x）承载；频道两腿依赖仍由装配层经
  * `VerticalDeps` 注入（缺席静默降级，本包永不直接触网）。既有具名导出
  * 零破坏——`verticals-x` 测试与 peer dsh-webstack 的动态 import 面不变。

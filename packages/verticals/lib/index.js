@@ -258,7 +258,7 @@ var XVerticalChannel = class {
 			if (res.status < 200 || res.status >= 300) return "";
 			const record = parseOembedJson(await res.text());
 			if (record === void 0) return "";
-			const html = narrowNonEmptyString(record["html"]);
+			const html = narrowNonEmptyString(record.html);
 			if (html === void 0) return "";
 			return stripHtmlToText(html);
 		} catch {

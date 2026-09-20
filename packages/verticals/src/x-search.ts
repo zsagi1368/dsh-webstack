@@ -283,7 +283,7 @@ export class XVerticalChannel implements VerticalChannel {
       if (res.status < 200 || res.status >= 300) return '';
       const record = parseOembedJson(await res.text());
       if (record === undefined) return '';
-      const html = narrowNonEmptyString(record['html']);
+      const html = narrowNonEmptyString(record.html);
       if (html === undefined) return '';
       return stripHtmlToText(html);
     } catch {
