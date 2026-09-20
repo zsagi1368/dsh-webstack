@@ -444,7 +444,10 @@ export interface CapabilityBitmap {
   inputSlot: boolean;
   /** credentials 域 credentialRef 服务可用。 */
   credentialsDomain: boolean;
-  /** 平台 storage/snapshot 持久服务可用。 */
+  /**
+   * ctx.storage 对象样在场（仅诊断位，进加载标记日志；装配层不消费 storage
+   * ——主线 storage=hub/forms 无 KV 面，R-5 处置 TC-B4-W1③）。
+   */
   storageService: boolean;
   /** 浏览器桥接卫星在线且已配对。 */
   bridgeOnline: boolean;
@@ -551,12 +554,35 @@ export interface SeamSettingsRuntime {
   installSection<T>(ns: string, schema: unknown, entry: T, hooks: SeamSettingsHooks<T>): void;
 }
 
-/** 凭据解析面（镜像 credentials 域 resolve；每操作起点解析快照 W-B-74）。 */
-export interface SeamCredentialsRuntime {
-  resolve(ref: string): Promise<string | undefined>;
+/**
+ * 宿主 credentials 域单条解析产物（主线 ResolvedCredential 镜像：主仓
+ * packages/credentials/credentials/src/index.ts:118-123 @9da7f7371d；
+ * 0.1.2-rc.1 与现世代形状一致。R-4：插件旧约按裸 string 消费导致命中即
+ * TypeError，解包归口 creds/resolve.ts unwrapResolvedCredential）。
+ */
+export interface SeamResolvedCredential {
+  /** 非空明文密钥。 */
+  value: string;
+  /** 提供方定义的来源层 id（主线 local provider：env/file/project-env/user-env）。 */
+  source: string;
 }
 
-/** 持久存储面（平台 storage/snapshot 的最小镜像；缺失则仅 L0 内存缓存）。 */
+/**
+ * 凭据解析面（镜像 credentials 域 resolve；每操作起点解析快照 W-B-74）。
+ * 主线签名 `resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>`；
+ * 裸 string 为本插件历史契约形状，消费点兼容解包（TC-B4-W1②）。
+ */
+export interface SeamCredentialsRuntime {
+  resolve(ref: string): Promise<SeamResolvedCredential | string | undefined>;
+}
+
+/**
+ * 通用 KV 持久面（getItem/setItem 成对）。**非主线 storage 镜像**：主线 storage
+ * 是 hub/forms 架构（backend 注册表 + forms 挂载），全树无该方法对，真实宿主上
+ * 本面恒缺席——装配层已显式放弃对 ctx.storage 的消费（R-5 幻影接线处置，
+ * TC-B4-W1③ b 案）。接口保留仅为 pickPersistence/StorageSeamAdapter 的库级
+ * 显式注入面；缺省时 durable 档回落文件适配器（功能不丢）。
+ */
 export interface SeamStorageRuntime {
   getItem(key: string): Promise<string | undefined>;
   setItem(key: string, value: string): Promise<void>;
@@ -565,6 +591,8 @@ export interface SeamStorageRuntime {
 /**
  * 全部宿主接缝的可选集合：activate 时逐一探测填充，缺省位驱动降级梯。
  * 这是本插件与宿主的**全部**耦合点的机器可读清单（分册 06 §2）。
+ * 例外：`storage` 非装配期探测面——R-5 处置后装配层不消费 ctx.storage，
+ * 该位仅作为 pickPersistence 的库级显式注入入参存在（TC-B4-W1③）。
  */
 export interface HostSeams {
   readonly web?: SeamWebRuntime;
@@ -572,6 +600,7 @@ export interface HostSeams {
   readonly tools?: SeamToolsRuntime;
   readonly settings?: SeamSettingsRuntime;
   readonly credentials?: SeamCredentialsRuntime;
+  /** 库级显式注入位（装配期不探测、不消费——R-5 处置，TC-B4-W1③）。 */
   readonly storage?: SeamStorageRuntime;
   /** 浏览器桥接卫星（F-201）在线且已配对时由装配层填充。 */
   readonly bridge?: SeamBridgeRuntime;

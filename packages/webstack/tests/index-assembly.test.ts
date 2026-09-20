@@ -3,9 +3,13 @@
  * 垂类条件装配）、candidates 层扩展、composeSnapshot 凭据/会话联网映射、
  * credsSourceViewFrom 键位抽取，以及真实 cordis Context 的端到端装配。
  */
+
+import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import WebRuntime from '@deepseek-ai/dsh-web';
-import { describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { KEYED_ENGINE_IDS } from '../src/engines/engine.ts';
 import {
   assembleWebstack,
@@ -139,6 +143,19 @@ describe('composeSnapshot / credsSourceViewFrom（纯装配辅助）', () => {
 });
 
 describe('assembleWebstack（真实 cordis Context 端到端）', () => {
+  // R-5 锁化夹具（TC-B4-W1③）：durable 档文件适配器的落盘读写圈进自建自收
+  // 临时 HOME（系统 tempdir + 固定前缀，32C 契约例先例形制，§5.1 豁免面）。
+  let tempHome: string;
+  beforeAll(() => {
+    tempHome = mkdtempSync(join(tmpdir(), 'webstack-w1-home-'));
+  });
+  afterAll(() => {
+    rmSync(tempHome, { recursive: true, force: true });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('装配产物暴露状态机/快照/历史；refresh 热更新 forceFresh 与模式', async () => {
     const ctx = new Context();
     ctx.plugin(WebRuntime, {});
@@ -157,20 +174,32 @@ describe('assembleWebstack（真实 cordis Context 端到端）', () => {
     expect(assembly.aggregator.snapshot.layer).toBe('free');
   });
 
-  it('cachePersist=durable 且宿主 storage 在场 → L1 生效（write-through 可读回）', async () => {
+  it('cachePersist=durable + KV 形 storage 在场 → 装配层显式不消费（R-5 放弃处置）→ 文件适配器 L1', async () => {
+    // TC-B4-W1③ 锁：旧幻影接线（KV 形 ctx.storage → StorageSeamAdapter）已拆除。
+    // 主线 storage=hub/forms 无 getItem/setItem，durable 档恒文件适配器；
+    // 即便宿主挂了 KV 形服务，装配层也不再消费（显式注入面仅剩库级
+    // pickPersistence(config, {storage})，见 cache-adapters.test.ts 决策矩阵锁）。
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('USERPROFILE', tempHome);
     const ctx = new Context();
     ctx.plugin(WebRuntime, {});
     const store = new Map<string, string>();
-    // 探测面只看对象形状：直接挂 storage 服务。
     (ctx as unknown as Record<string, unknown>).storage = {
       getItem: async (k: string) => store.get(k),
       setItem: async (k: string, v: string) => void store.set(k, v),
     };
     const assembly = assembleWebstack(ctx, { cachePersist: 'durable' });
+    // 诊断位如实报告 ctx.storage 对象样在场（kernel 探测语义不变，仅诊断）。
+    expect(assembly.capabilities.storageService).toBe(true);
     await assembly.aggregator.cache.set('search', 'k1', [{ marker: true }]);
-    expect(store.size).toBeGreaterThan(0); // write-through 已落宿主 storage
+    expect(store.size).toBe(0); // 宿主 KV storage 零写入
+    const cacheRoot = join(tempHome, '.webstack', 'cache');
+    const landed = readdirSync(cacheRoot, { recursive: true }).filter((f) =>
+      String(f).endsWith('.json'),
+    );
+    expect(landed.length).toBeGreaterThan(0); // L1 由文件适配器承载（临时 HOME 落盘）
     const back = await assembly.aggregator.cache.get('search', 'k1');
-    expect(back).toEqual([{ marker: true }]);
+    expect(back).toEqual([{ marker: true }]); // write-through 后可读回（功能不丢）
   });
 
   it('桥接卫星探测：ctx.bridge.render 为函数时 bridgeOnline=true 并注入聚合器', async () => {
@@ -187,11 +216,6 @@ describe('assembleWebstack（真实 cordis Context 端到端）', () => {
   it('cachePersist 切换热生效：memory→durable 后 attachCache 换新栈', async () => {
     const ctx = new Context();
     ctx.plugin(WebRuntime, {});
-    const store = new Map<string, string>();
-    (ctx as unknown as Record<string, unknown>).storage = {
-      getItem: async (k: string) => store.get(k),
-      setItem: async (k: string, v: string) => void store.set(k, v),
-    };
     const cfg: PluginConfig = { cachePersist: 'memory' };
     const assembly = assembleWebstack(ctx, cfg);
     const memoryCache = assembly.aggregator.cache;

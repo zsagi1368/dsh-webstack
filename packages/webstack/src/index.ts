@@ -5,7 +5,10 @@
  * `ctx.web`. Coexist mode by default: the bundled cordis patch is an empty
  * list, so upstream selectors stay untouched unless the user opts into
  * takeover. All optional seams (settings/tools/systemPrompt/credentials/
- * storage/bridge) are capability-probed, never hard-injected (W-B-08).
+ * bridge) are capability-probed, never hard-injected (W-B-08). The storage
+ * seam is deliberately NOT wired: mainline storage is a hub/forms registry
+ * with no getItem/setItem pair anywhere, so `cachePersist: 'durable'` always
+ * lands on the file adapter (R-5 explicit abandonment, TC-B4-W1③).
  *
  * 装配顺序（W-B-08 降级梯，W9 全量接线版）：能力探测 → 引擎接线（免费池 /
  * 自托管 / keyed 六家 / 原生委托 / MCP 校验注册 / 垂类条件装配）→ 缓存栈
@@ -59,7 +62,6 @@ import type {
   EngineSearchRequest,
   McpServerEntry,
   SeamCredentialsRuntime,
-  SeamStorageRuntime,
   SearchLayer,
   SessionOnlineMode,
   TierMode,
@@ -118,7 +120,11 @@ export interface PluginConfig {
   searxngBaseUrl?: string;
   /** 会话联网模式（mode.sessionOnline）：`on` 时搜索强制 fresh 跳缓存读。 */
   sessionOnline?: SessionOnlineMode;
-  /** 缓存持久层档位（cache.persist）：`durable` 启用 L1（storage seam 或文件）。 */
+  /**
+   * 缓存持久层档位（cache.persist）：`durable` 启用 L1——恒为文件适配器
+   * （`<home>/.webstack/cache`）。主线 storage 是 hub/forms 架构（全树无
+   * getItem/setItem），storage seam 幻影接线已显式放弃（R-5，TC-B4-W1③）。
+   */
   cachePersist?: 'memory' | 'durable';
   /**
    * Windows 系统代理兜底（advanced.winProxyFallback，默认 false）：开启时
@@ -343,14 +349,12 @@ function peekCredentials(ctx: unknown): SeamCredentialsRuntime | undefined {
     : undefined;
 }
 
-/** 探测宿主 storage 服务（getItem/setItem 成对才算在线）。 */
-function peekStorage(ctx: unknown): SeamStorageRuntime | undefined {
-  const service = peekService(ctx, 'storage');
-  if (typeof service?.getItem !== 'function' || typeof service?.setItem !== 'function') {
-    return undefined;
-  }
-  return service as unknown as SeamStorageRuntime;
-}
+// R-5 处置（TC-B4-W1③ b 案，显式放弃幻影接线）：旧 peekStorage（ctx.storage 的
+// getItem/setItem 成对探测）已删除——主线 storage 是 hub/forms 架构，全树无该方法
+// 对，探测在真实宿主恒假（contract-webstack.md:58 幻影接线）。durable 档一律
+// FilePersistenceAdapter（功能不丢，回落路径 adapters.ts pickPersistence 实证）；
+// StorageSeamAdapter 与 pickPersistence 的 seams.storage 入参保留为库级显式注入
+// 面，装配层不再消费 ctx.storage（capabilities.storageService 诊断位不受影响）。
 
 /**
  * 探测浏览器桥接卫星（T3/F-201）：约定服务键 `bridge`（兼容 `webstackBridge`），
@@ -401,9 +405,8 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   capabilities.bridgeOnline = peekBridge(ctx) !== undefined;
   const tier: TierMode = deriveTierMode(capabilities);
 
-  // ---- 接缝收集（全部可选，缺失走降级梯）----------------------------------
+  // ---- 接缝收集（全部可选，缺失走降级梯；storage 不在收集面——R-5 处置）------
   const bridge = peekBridge(ctx);
-  const storageSeam = peekStorage(ctx);
   const credentialsSeam = peekCredentials(ctx);
 
   // ---- 垂直腿免费池回调：只跑 ddg/bing-lite，杜绝垂类递归加发自身----------
@@ -428,13 +431,10 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   let cache!: SearchCache;
   let history!: HistoryStore;
   const buildCacheStack = (): void => {
+    // R-5（TC-B4-W1③）：不传 seams——durable 档恒文件适配器（装配层显式放弃
+    // storage seam 消费；pickPersistence 的显式注入面保留给库级调用方）。
     const adapter =
-      persistMode === 'durable'
-        ? pickPersistence(
-            { persist: persistMode },
-            storageSeam === undefined ? undefined : { storage: storageSeam },
-          )
-        : undefined;
+      persistMode === 'durable' ? pickPersistence({ persist: persistMode }) : undefined;
     cache = new SearchCache(adapter === undefined ? {} : { adapter });
     history = new HistoryStore(adapter === undefined ? {} : { adapter });
   };
@@ -571,6 +571,7 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
             },
             cache: {
               type: 'object',
+              required: true,
               additionalProperties: false,
               properties: {
                 hits: { type: 'number', required: true },
@@ -579,7 +580,13 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
               },
             },
           },
-          required: ['tier', 'engines', 'cache'],
+          // F2 修（TC-B4-W1①）：旧根级 `required: ['tier','engines','cache']` 不属
+          // author value-schema DSL——defineTool（rc.1/rc.2 两代同严格）对根级 required
+          // 抛 JsonSchemaError "schema.required is not supported by the value schema
+          // DSL"，真实宿主带 ctx.tools 装配即抛（V2-contracts 项2 实机证）。语义等价
+          // 由 per-property `required: true` 承载（tier/engines/cache 三键不变；
+          // defineTool 转换后仍生成根级 required:['tier','engines','cache']，
+          // 真宿主装配冒烟见 tests/tools-host-contract.spec.ts）。
         },
         render: (_args, value) => {
           const report = value as Parameters<typeof renderDoctor>[0];

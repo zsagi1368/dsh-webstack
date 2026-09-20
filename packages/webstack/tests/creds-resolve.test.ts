@@ -22,7 +22,7 @@ function makeSeam(secret = 'seam-resolved-secret'): SeamCredentialsRuntime & { c
     calls: 0,
     async resolve(ref) {
       this.calls++;
-      return ref === 'known-ref' ? secret : undefined;
+      return ref === 'KNOWN_REF' ? secret : undefined;
     },
   };
 }
@@ -51,14 +51,14 @@ describe('resolveCreds · 三级优先级矩阵', () => {
     {
       name: '三级齐备 → legacy-literal 胜出',
       config: 'cfg-key-01',
-      ref: 'known-ref',
+      ref: 'KNOWN_REF',
       withSeam: true,
       env: 'env-key-01',
       expectedSource: 'legacy-literal',
     },
     {
       name: '字面缺席 → credential-ref 次之',
-      ref: 'known-ref',
+      ref: 'KNOWN_REF',
       withSeam: true,
       env: 'env-key-02',
       expectedSource: 'credential-ref',
@@ -90,7 +90,7 @@ describe('resolveCreds · 三级优先级矩阵', () => {
     vi.stubEnv('WEBSTACK_TESTER_API_KEY', 'env-fallback-key');
     const snapshot = await resolveCreds(['tester'], {
       configValues: {},
-      credentialsRef: { tester: 'known-ref' },
+      credentialsRef: { tester: 'KNOWN_REF' },
     });
     expect(snapshot.entries.tester).toMatchObject({
       state: 'configured',
@@ -101,7 +101,7 @@ describe('resolveCreds · 三级优先级矩阵', () => {
   it('seam 在但 resolve 返回空 → 继续下探到 env', async () => {
     vi.stubEnv('WEBSTACK_TESTER_API_KEY', 'env-after-empty-seam');
     const snapshot = await resolveCreds(['tester'], {
-      credentialsRef: { tester: 'unknown-ref' },
+      credentialsRef: { tester: 'UNKNOWN_REF' },
       seams: { credentials: makeSeam() },
     });
     expect(snapshot.entries.tester).toMatchObject({

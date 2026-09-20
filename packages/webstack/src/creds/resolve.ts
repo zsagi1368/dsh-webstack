@@ -10,6 +10,12 @@
  *   绝不让占位串冒充真实密钥流向引擎。
  * - **服务缺席跳级**：credentials seam 未注入时 credential-ref 层整体跳过，
  *   直接落到 env——能力缺失降级，不抛错（W-B-08 降级梯）。
+ * - **主线形状解包（R-4，TC-B4-W1②）**：主线 credentials 域 resolve 返回
+ *   `ResolvedCredential {value, source}` 对象（非裸 string）；消费点经
+ *   {@link unwrapResolvedCredential} 解包，命中取 `value`，未命中/形状不合
+ *   → undefined 静默跳级（语义与旧约一致）。
+ * - **ref 预校验**：非 CredentialRef 语法（POSIX 标识符）的 ref 不调用 seam，
+ *   按「无可 miss 之凭据」读作未设置（主线 isCredentialRefName 文档语义）。
  *
  * @module webstack/creds/resolve
  */
@@ -20,10 +26,44 @@ import type {
   CredSource,
   CredsSnapshot,
   SeamCredentialsRuntime,
+  SeamResolvedCredential,
 } from '../kernel/types.ts';
 import { CREDS_SOURCE_ORDER } from '../kernel/types.ts';
 
 export { CREDS_SOURCE_ORDER };
+
+/**
+ * CredentialRef 语法（主线镜像：主仓 packages/credentials/credentials/src/index.ts:19
+ * REF_PATTERN，@9da7f7371d 与 f4b5514c66 两代一致）：POSIX 风格环境变量名。
+ * 注意 `<scope>/<id>` 是主线 **CredentialKey** 的语法（两键空间以 `/` 互斥），
+ * 不是 ref——契约盘点 contract-webstack.md:57 的该半句系误读（TC-B4-W1 回执 §0.1）。
+ */
+const CREDENTIAL_REF_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * ref 是否具备 CredentialRef 语法。非语法名没有可 miss 的凭据，应读作
+ * 「未设置」而非送进宿主（主线 isCredentialRefName 的消费方纪律）——
+ * 预校验失败即整层静默跳过，绝不抛错。
+ */
+export function isCredentialRefShape(ref: string): boolean {
+  return CREDENTIAL_REF_PATTERN.test(ref);
+}
+
+/**
+ * R-4 解包（TC-B4-W1②）：主线 ResolvedCredential `{value, source}` 取 `value`；
+ * 裸 string 为历史契约形状，原样兼容；undefined/其他形状一律读作未命中
+ * （undefined → 静默跳级）。防御面：value 非 string（如 null/数字）同样未命中。
+ */
+export function unwrapResolvedCredential(
+  resolved: SeamResolvedCredential | string | undefined | unknown,
+): string | undefined {
+  if (typeof resolved === 'string') return resolved;
+  if (typeof resolved === 'object' && resolved !== null) {
+    const value = (resolved as Record<string, unknown>).value;
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
+}
 
 /** 典型占位符黑名单样例（文档性清单；运行时判定走 PLACEHOLDER_REGEX）。 */
 export const PLACEHOLDER_PATTERNS = [
@@ -130,10 +170,13 @@ async function resolveCore(
     }
 
     // 第 2 级：credential-ref —— 经宿主 credentials 域解析；服务缺席跳级。
+    // R-4（TC-B4-W1②）：ref 先过语法预校验（非 POSIX 标识符 = 无可 miss 之
+    // 凭据，整层跳过不触 seam）；seam 返回值经 unwrapResolvedCredential 解包
+    // （主线 {value,source} 对象 / 历史裸 string / 未命中 undefined）。
     const ref = presentValue(opts.credentialsRef?.[engineId]);
-    if (entry.state === 'absent' && ref !== undefined) {
+    if (entry.state === 'absent' && ref !== undefined && isCredentialRefShape(ref)) {
       const resolved = await opts.seams?.credentials?.resolve(ref);
-      const viaSeam = presentValue(resolved);
+      const viaSeam = presentValue(unwrapResolvedCredential(resolved));
       if (viaSeam !== undefined && !isPlaceholderSecret(viaSeam)) {
         entry = configuredEntry('credential-ref', viaSeam);
         secret = viaSeam;
@@ -162,8 +205,10 @@ async function resolveCore(
  *
  * 层内语义：
  * - legacy-literal 命中占位符 → 该层记 absent 并发告警，继续下探；
- * - credential-ref：ref 存在但 credentials seam 缺席 → 整层跳过；
- *   seam 在而 resolve 返回空 → 该引擎该层 absent，继续下探；
+ * - credential-ref：ref 未过语法预校验（{@link isCredentialRefShape}）或
+ *   credentials seam 缺席 → 整层跳过；seam 在而 resolve 未命中 / 解包后
+ *   空值 / 形状不合 → 该引擎该层 absent，继续下探（R-4 解包见
+ *   {@link unwrapResolvedCredential}）；
  * - env：变量名由 {@link envVarName} 派生，空串等同缺席。
  */
 export async function resolveCreds(

@@ -6,8 +6,11 @@
  *   JSON 信封 `{value, storedAt, ttlMs}`。**全部操作 try/catch 不抛**——磁盘
  *   故障/权限缺失一律静默降级为 miss（i18n: webstack.cache.adapter-degraded），
  *   缓存层故障绝不放大为业务失败；
- * - {@link StorageSeamAdapter}：包宿主 SeamStorageRuntime（getItem/setItem），
- *   单键 per domain 存 JSON 映射表；同过期语义。
+ * - {@link StorageSeamAdapter}：包通用 KV 面 SeamStorageRuntime（getItem/setItem），
+ *   单键 per domain 存 JSON 映射表；同过期语义。**显式注入面**：主线 storage 是
+ *   hub/forms 架构（无 KV 方法对），装配层已显式放弃对 ctx.storage 的消费
+ *   （R-5 幻影接线处置，TC-B4-W1③）——本适配器仅在库级调用方显式构造
+ *   `pickPersistence(config, {storage})` 时使用。
  *
  * 过期语义与 L0 一致：惰性清除（读到过期条目才删），无后台计时器。
  * 宁可 miss 不可错 hit（W-B-30）：信封形状不完整/JSON 损坏一律按 miss 处理。
@@ -131,7 +134,7 @@ const KNOWN_BUCKETS: readonly (CacheDomain | typeof FALLBACK_BUCKET)[] = [
 ];
 
 /**
- * 宿主 SeamStorageRuntime 包装版适配器：每个 domain 一个存储键，
+ * 通用 KV 面（SeamStorageRuntime）包装版适配器：每个 domain 一个存储键，
  * 值为 `{完整键: 信封}` 的 JSON 映射（单键 per domain，W-B-55 不落明文密钥——
  * 缓存键含 credFingerprint 而非凭据本体）。
  */
@@ -236,8 +239,9 @@ export interface PersistConfigView {
 }
 
 /**
- * 持久层选择器：`persist==='durable'` 才启用 L1——优先宿主 storage seam
- * （能力探测到位时），否则回落文件适配器（<home>/.webstack/cache）。
+ * 持久层选择器：`persist==='durable'` 才启用 L1——seams.storage **显式注入**
+ * 优先（库级契约；装配层不传该参：主线 storage=hub/forms 无 KV 面，R-5 处置
+ * TC-B4-W1③），否则回落文件适配器（<home>/.webstack/cache）。
  * 其余取值（默认 'memory'）返回 undefined = 纯内存 L0。
  */
 export function pickPersistence(
