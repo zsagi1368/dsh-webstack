@@ -327,14 +327,44 @@ export interface WebstackAssembly {
   refresh(): void;
 }
 
-/** 安全读取可能未装载的 cordis 服务（访问未装载服务属性会抛错而非 undefined）。 */
+/**
+ * 安全读取可能未装载的 cordis 服务（W3-F1 守卫式 seam，RA1c 同族修形）。
+ *
+ * 真 cordis context proxy 对未声明 inject 的服务做**属性读会抛错**而非返回
+ * undefined（reflect.ts get trap：`cannot get property "…" without inject`）——
+ * 旧纯属性读形制下 try/catch 把抛错吞成 undefined，全部可选 seam 在生产装载
+ * 通道静默降级（W3-F1：真 ToolRuntime 在场而三工具零注册）。修形=双通道：
+ *
+ * ① `ctx.get(key)` 优先——cordis 文档化逃生门「Read a service from the store
+ *   without the inject requirement」（strict 缺省 true：只解析 ACTIVE fiber 的
+ *   实现；返回 getTraceable 包装=经 seam 的注册面仍 fiber 托管，RA1d 核查
+ *   结论不变）；
+ * ② 属性读回退——保两类兼容面：plain-object mock ctx（无 get 面，属性直读
+ *   本就安全）与真 Context 上的属性赋值假面（自有属性经 get trap
+ *   `Reflect.has` 放行、但对 ctx.get 的 store 查找不可见——既有契约/装配
+ *   测试拓扑）。
+ *
+ * 两通道各自 try/catch，吞错语义保持（降级梯哲学不变：任何异常/非对象值=
+ * 服务缺席=undefined，装配继续走降级路径）。
+ */
 function peekService(ctx: unknown, key: string): Record<string, unknown> | undefined {
   if (typeof ctx !== 'object' || ctx === null) return undefined;
+  const holder = ctx as Record<string, unknown>;
+  const asRecord = (value: unknown): Record<string, unknown> | undefined =>
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : undefined;
+  // ① get 通道优先（真 cordis 宿主）；get 面自身异常同样吞掉，落回退通道。
   try {
-    const value = (ctx as Record<string, unknown>)[key];
-    return typeof value === 'object' && value !== null
-      ? (value as Record<string, unknown>)
-      : undefined;
+    const get = holder.get;
+    if (typeof get === 'function') {
+      const viaGet = asRecord((get as (name: string) => unknown).call(holder, key));
+      if (viaGet !== undefined) return viaGet;
+    }
+  } catch {
+    // 异常 get 面（非常规宿主形）→ 与旧形制同语义，走属性读回退。
+  }
+  // ② 属性读回退（plain-object mock / 真 Context 属性赋值假面；门控属性读抛错吞成 undefined）。
+  try {
+    return asRecord(holder[key]);
   } catch {
     return undefined;
   }
