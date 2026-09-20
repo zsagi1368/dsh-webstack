@@ -44,6 +44,52 @@
   },
   "packageManager": "pnpm@11.17.0",
   "dsh": {
+    "compatible": ">=0.1.5-rc.2 <0.2.0",
+    "autoApprove": true,
+    "capabilities": [
+      {
+        "type": "service",
+        "service": {
+          "name": "dsh-webstack/webstack",
+          "factory": "./lib/index.js",
+          "singleton": true
+        }
+      }
+    ],
+    "sandbox": {
+      "type": "inline",
+      "resources": {
+        "memoryLimitMb": 256,
+        "cpuLimit": 50,
+        "timeoutMs": 30000,
+        "maxOutputBytes": 10000
+      },
+      "filesystem": {
+        "access": "readwrite",
+        "allowedPaths": [
+          "~/.webstack/cache"
+        ],
+        "deniedPatterns": []
+      },
+      "network": {
+        "access": "external",
+        "allowedHosts": [],
+        "deniedHosts": [],
+        "allowLocal": false
+      },
+      "environment": {
+        "whitelist": [],
+        "blacklist": [],
+        "clear": false
+      },
+      "process": {
+        "spawn": false,
+        "exec": true,
+        "allowedCommands": [
+          "reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+        ]
+      }
+    },
     "bundle": {
       "patch": "./cordis.patch.yml"
     },
