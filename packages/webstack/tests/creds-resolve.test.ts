@@ -4,11 +4,14 @@ import {
   CREDS_SOURCE_ORDER,
   credFingerprint,
   envVarName,
+  isCredentialRefShape,
   isPlaceholderSecret,
   maskSecret,
   opaqueIdOf,
   PLACEHOLDER_PATTERNS,
   resolveCreds,
+  resolveCredsDetailed,
+  unwrapResolvedCredential,
 } from '../src/creds/resolve.ts';
 import type { CredsSnapshot, SeamCredentialsRuntime } from '../src/kernel/types.ts';
 
@@ -193,5 +196,152 @@ describe('credFingerprint', () => {
       configValues: { ddg: 'key-ddg-1', bing: 'key-bing-1' },
     });
     expect(credFingerprint(reversed)).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TC-B4-W1④：R-4 双向形状判别对 + ref 语法预校验锁。
+// 三级优先级/跳级/占位符/掩码/指纹行为锁 = 上方既有谱（不重复）；本节锁
+// 主线 ResolvedCredential {value,source} 对象形状（credentials/src/index.ts
+// :118-123 镜像）的解包正确性（正向）与未命中 → undefined 静默跳级（负向）。
+// ---------------------------------------------------------------------------
+
+/** 主线对象形状 seam 桩：KNOWN_REF → {value,source}；其余 → undefined（未命中）。 */
+function makeObjectSeam(
+  secret = 'object-resolved-secret',
+): SeamCredentialsRuntime & { calls: number } {
+  return {
+    calls: 0,
+    async resolve(ref) {
+      this.calls++;
+      return ref === 'KNOWN_REF' ? { value: secret, source: 'user-env' } : undefined;
+    },
+  };
+}
+
+describe('R-4 形状判别对（TC-B4-W1④）', () => {
+  it('正向：主线对象 {value,source} 解包正确 → configured/credential-ref，掩码与 opaqueId 由 value 派生', async () => {
+    const secret = 'obj-secret-abcdefgh';
+    const seam = makeObjectSeam(secret);
+    const snapshot = await resolveCreds(['tester'], {
+      credentialsRef: { tester: 'KNOWN_REF' },
+      seams: { credentials: seam },
+    });
+    expect(seam.calls).toBe(1);
+    expect(snapshot.entries.tester).toEqual({
+      state: 'configured',
+      source: 'credential-ref',
+      maskedHint: maskSecret(secret),
+      opaqueId: opaqueIdOf(secret),
+    });
+  });
+
+  it('正向伴随：resolveCredsDetailed 明文表含解包后 value；快照本体仍零明文', async () => {
+    const secret = 'detailed-secret-99';
+    const { snapshot, secrets } = await resolveCredsDetailed(['tester'], {
+      credentialsRef: { tester: 'KNOWN_REF' },
+      seams: { credentials: makeObjectSeam(secret) },
+    });
+    expect(secrets.tester).toBe(secret);
+    expect(snapshot.entries.tester!.source).toBe('credential-ref');
+    expect(JSON.stringify(snapshot)).not.toContain(secret);
+  });
+
+  it('负向：resolve 未命中 → undefined 静默跳级到 env（不抛错）', async () => {
+    vi.stubEnv('WEBSTACK_TESTER_API_KEY', 'env-after-object-miss');
+    const seam = makeObjectSeam();
+    const snapshot = await resolveCreds(['tester'], {
+      credentialsRef: { tester: 'ABSENT_REF' },
+      seams: { credentials: seam },
+    });
+    expect(seam.calls).toBe(1); // ref 语法合法 → 触达 seam；未命中不抛
+    expect(snapshot.entries.tester).toMatchObject({ state: 'configured', source: 'env' });
+  });
+
+  it('异形状对象（value 空串/空白/非 string/缺位）一律读作未命中 → 下探', async () => {
+    vi.stubEnv('WEBSTACK_TESTER_API_KEY', 'env-real-value');
+    const badShapes: unknown[] = [
+      { value: '', source: 'env' },
+      { value: '   ', source: 'env' },
+      { value: 42, source: 'env' },
+      { source: 'env' },
+      null,
+      42,
+    ];
+    for (const bad of badShapes) {
+      const seam: SeamCredentialsRuntime = { resolve: async () => bad as never };
+      const snapshot = await resolveCreds(['tester'], {
+        credentialsRef: { tester: 'KNOWN_REF' },
+        seams: { credentials: seam },
+      });
+      expect(snapshot.entries.tester, JSON.stringify(bad)).toMatchObject({
+        state: 'configured',
+        source: 'env',
+      });
+    }
+  });
+
+  it('解包值命中占位符 → 该层 absent（拦截语义与字面层等价；告警键归 legacy-literal 层，此层不发）', async () => {
+    const warnings: [string, string][] = [];
+    const seam: SeamCredentialsRuntime = {
+      resolve: async () => ({ value: '<your-api-key>', source: 'file' }),
+    };
+    const snapshot = await resolveCreds(['tester'], {
+      credentialsRef: { tester: 'KNOWN_REF' },
+      seams: { credentials: seam },
+      onWarning: (engineId, key) => warnings.push([engineId, key]),
+    });
+    expect(snapshot.entries.tester!.state).toBe('absent');
+    expect(warnings).toEqual([]);
+  });
+
+  it('裸 string 形状（插件历史契约）→ 兼容解包成功', async () => {
+    const seam: SeamCredentialsRuntime = { resolve: async () => 'plain-string-secret' };
+    const snapshot = await resolveCreds(['tester'], {
+      credentialsRef: { tester: 'KNOWN_REF' },
+      seams: { credentials: seam },
+    });
+    expect(snapshot.entries.tester).toMatchObject({
+      state: 'configured',
+      source: 'credential-ref',
+      maskedHint: maskSecret('plain-string-secret'),
+    });
+  });
+
+  it('unwrapResolvedCredential 单元：对象取 value / string 原样 / 其余未命中', () => {
+    expect(unwrapResolvedCredential({ value: 'v', source: 's' })).toBe('v');
+    expect(unwrapResolvedCredential('raw')).toBe('raw');
+    expect(unwrapResolvedCredential(undefined)).toBeUndefined();
+    expect(unwrapResolvedCredential(null)).toBeUndefined();
+    expect(unwrapResolvedCredential(42)).toBeUndefined();
+    expect(unwrapResolvedCredential({ value: 42, source: 's' })).toBeUndefined();
+    expect(unwrapResolvedCredential({ source: 's' })).toBeUndefined();
+  });
+
+  it('ref 预校验：非 POSIX 标识符语法 → seam 零触达、静默跳级（主线 isCredentialRefName 消费纪律）', async () => {
+    vi.stubEnv('WEBSTACK_TESTER_API_KEY', 'env-after-bad-ref');
+    for (const bad of ['scope/id', 'has-hyphen', '123lead', 'with space', '']) {
+      const seam = makeObjectSeam();
+      const snapshot = await resolveCreds(['tester'], {
+        credentialsRef: { tester: bad },
+        seams: { credentials: seam },
+      });
+      expect(seam.calls, bad).toBe(0);
+      expect(snapshot.entries.tester, bad).toMatchObject({
+        state: 'configured',
+        source: 'env',
+      });
+    }
+  });
+
+  it('isCredentialRefShape 语法单元锁：与主线 REF_PATTERN（index.ts:19 @9da7f7371d）语义一致', () => {
+    for (const good of ['DEEPSEEK_API_KEY', '_private', 'A1', 'k']) {
+      expect(isCredentialRefShape(good), good).toBe(true);
+    }
+    // `<scope>/<id>` 是主线 CredentialKey 语法（types.ts:17-29），ref 面必拒——
+    // contract-webstack.md:57 该半句系误读（回执 §0.1 偏差登记）。
+    for (const bad of ['scope/id', 'has-hyphen', '123lead', '', 'with space', 'dot.name']) {
+      expect(isCredentialRefShape(bad), bad).toBe(false);
+    }
   });
 });

@@ -60,6 +60,7 @@
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:contract": "vitest run --config vitest.contract.config.ts",
     "bench": "node --experimental-transform-types bench/pipeline.bench.mjs",
     "lint": "biome check .",
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"

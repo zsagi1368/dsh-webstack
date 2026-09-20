@@ -202,6 +202,33 @@ describe('assembleWebstack（真实 cordis Context 端到端）', () => {
     expect(back).toEqual([{ marker: true }]); // write-through 后可读回（功能不丢）
   });
 
+  it('主线 hub/forms 形 storage（无 KV 方法对）+ durable → 同样文件回落（R-5 主线真形锁）', async () => {
+    // 主线 storage/src/index.ts:45-61 真形镜像（@9da7f7371d）：backend 注册表 +
+    // mount(form, facility)，全树 grep setItem 零命中——旧 peekStorage 在此形状上
+    // 恒假（幻影接线实证），处置后 durable 档确定走文件适配器。
+    vi.stubEnv('HOME', tempHome);
+    vi.stubEnv('USERPROFILE', tempHome);
+    const ctx = new Context();
+    ctx.plugin(WebRuntime, {});
+    const hubCalls: string[] = [];
+    (ctx as unknown as Record<string, unknown>).storage = {
+      backend: {
+        register: () => {
+          hubCalls.push('backend.register');
+        },
+      },
+      mount: () => {
+        hubCalls.push('mount');
+        return () => {};
+      },
+    };
+    const assembly = assembleWebstack(ctx, { cachePersist: 'durable' });
+    expect(assembly.capabilities.storageService).toBe(true); // 对象样在场 → 诊断位如旧
+    await assembly.aggregator.cache.set('search', 'hub-key', { v: 1 });
+    expect(hubCalls).toEqual([]); // hub 面零触达
+    expect(await assembly.aggregator.cache.get('search', 'hub-key')).toEqual({ v: 1 });
+  });
+
   it('桥接卫星探测：ctx.bridge.render 为函数时 bridgeOnline=true 并注入聚合器', async () => {
     const ctx = new Context();
     ctx.plugin(WebRuntime, {});

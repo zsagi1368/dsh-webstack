@@ -226,3 +226,71 @@ describe('keyFor', () => {
     expect(await cache.get(domains[1]!, key)).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// TC-B4-W1⑤：两层缓存分层命中计数锁（锁化不改行为——kernel/cache 语义零触碰；
+// fingerprint 稳定性与 adapters 回落路径锁谱见 cache-fingerprint.test.ts /
+// cache-adapters.test.ts / kernel-aggregator-w9.test.ts:122，既有覆盖不重复）。
+// ---------------------------------------------------------------------------
+
+describe('SearchCache · L0/L1 分层命中计数锁（TC-B4-W1⑤）', () => {
+  /** 计数版 L1 桩：语义委托 makeAdapter，逐方法计数（分层触达可观测）。 */
+  function makeCountingL1(): PersistenceAdapter & {
+    counts: { get: number; set: number; delete: number; clearAll: number };
+    seed(key: string, value: unknown, storedAt: number): void;
+  } {
+    const base = makeAdapter();
+    const counts = { get: 0, set: 0, delete: 0, clearAll: 0 };
+    return {
+      domain: 'all',
+      counts,
+      seed: (key, value, storedAt) => base.seed(key, value, storedAt),
+      async get(key) {
+        counts.get++;
+        return base.get(key);
+      },
+      async set(key, value, ttlMs) {
+        counts.set++;
+        return base.set(key, value, ttlMs);
+      },
+      async delete(key) {
+        counts.delete++;
+        return base.delete(key);
+      },
+      async clearAll() {
+        counts.clearAll++;
+        return base.clearAll();
+      },
+    };
+  }
+
+  it('L0 命中零触 L1：set write-through 恰一次，连读只走 L0', async () => {
+    const l1 = makeCountingL1();
+    const cache = new SearchCache({ adapter: l1 });
+    await cache.set('search', 'k', 'v');
+    expect(l1.counts.set).toBe(1); // write-through 恰一次
+    expect(await cache.get('search', 'k')).toBe('v');
+    expect(await cache.get('search', 'k')).toBe('v');
+    expect(l1.counts.get).toBe(0); // L0 命中，L1 读零触达
+    expect(cache.stats().hits).toBe(2);
+  });
+
+  it('L0 miss 回源 L1 恰一次并回填：第二次 get 回到 L0 命中', async () => {
+    const l1 = makeCountingL1();
+    const cache = new SearchCache({ adapter: l1 });
+    l1.seed('search:k', 'persisted', Date.now()); // L1 预置 = 跨进程重启语义
+    expect(await cache.get('search', 'k')).toBe('persisted');
+    expect(l1.counts.get).toBe(1); // 回源恰一次
+    expect(await cache.get('search', 'k')).toBe('persisted');
+    expect(l1.counts.get).toBe(1); // 回填后 L0 命中，L1 不再触达
+    expect(cache.stats()).toMatchObject({ hits: 2, misses: 0 });
+  });
+
+  it('双层皆 miss：L1 恰读一次并计 miss（宁可 miss 不可错 hit）', async () => {
+    const l1 = makeCountingL1();
+    const cache = new SearchCache({ adapter: l1 });
+    expect(await cache.get('fetch', 'nope')).toBeUndefined();
+    expect(l1.counts.get).toBe(1);
+    expect(cache.stats().misses).toBe(1);
+  });
+});
