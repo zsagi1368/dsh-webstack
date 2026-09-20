@@ -19,3 +19,13 @@ packages/verticals/lib/**/*.map
 # inversion only; the global rules above and the verticals entries are intact).
 !packages/bridge/lib/
 packages/bridge/lib/**/*.map
+
+# TC-B4-W2 (P-9 Option A, fix15): webstack prebuilt lib is checked in as a
+# whole-tree targeted inversion — its lib is an ESM sharded tree (index/client
+# entries + hash chunks + .d.ts), where a point-list would reproduce the P-9
+# broken chain one level down (DESIGN §8-P-9). Targeted inversion only; the
+# global rules above and the verticals/bridge entries are intact. The S1a
+# comment's "webstack ... stay ignored" phrasing is superseded for this
+# package by this block.
+!packages/webstack/lib/
+packages/webstack/lib/**/*.map
