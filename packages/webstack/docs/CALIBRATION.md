@@ -32,7 +32,7 @@
 | # | 决策 | 理由 |
 | --- | --- | --- |
 | E1 | 零原生模块 | Fork allowBuilds 白名单约束；也换来任意环境可安装。DNS 用 `node:dns/promises`，XML 解析手写正则，HTML 抽取手写启发式 |
-| E2 | 缓存 L0 进程内 Map-LRU + `PersistenceAdapter` 接口占位 | MVP 不依赖平台 storage 服务即可工作；接口冻结后接入 storage/snapshot 或 node:sqlite 即得 L1 write-through，不改调用方 |
+| E2 | 缓存 L0 进程内 Map-LRU + `PersistenceAdapter` 接口占位 | MVP 不依赖平台 storage 服务即可工作；原展望「接口冻结后接入 storage/snapshot 或 node:sqlite 即得 L1」已随 R-5(b) 处置（TC-B4-W1③）显式放弃——主线 storage 为 hub/forms 架构、全树无 KV 方法对，装配层不消费 ctx.storage（幻影接线）；终态：cachePersist=durable 恒走 FilePersistenceAdapter（`<home>/.webstack/cache`），StorageSeamAdapter 仅存为库级显式注入面 |
 | E3 | MCP SDK 未实装 | `mcp` 层词汇与池位已冻结进契约（`LAYER_ENGINE_POOL.mcp = []`），引擎接入属后续波次；避免提前引入未稳定的 SDK 依赖 |
 | E4 | 共享签名用本地结构类型 + 动态导入探测（engine.ts / pipeline.ts 先例） | 并行开发期不互相阻塞；打包器可静态分析字面量动态导入；模块缺失统一抛「未接线」transport 错误而非崩溃 |
 | E5 | 默认共存档（cordis patch 为空表） | patch 语义（key-level merge vs whole-row replacement）未实证前，接管块保持禁用；能力梯自动降级到 coexist |
