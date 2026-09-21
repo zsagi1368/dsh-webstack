@@ -350,9 +350,11 @@ function peekService(ctx: unknown, key: string): Record<string, unknown> | undef
 function peekCredentials(ctx: unknown): SeamCredentialsRuntime | undefined {
   const service = peekService(ctx, 'credentials');
   const resolve = service?.resolve;
-  return typeof resolve === 'function'
-    ? { resolve: resolve as SeamCredentialsRuntime['resolve'] }
-    : undefined;
+  if (service === undefined || typeof resolve !== 'function') return undefined;
+  // W1c（W3-F2 审计修点3）：bind 保持接收者——真宿主 LocalCredentialProvider.resolve 是
+  // class 方法（主仓 credentials-local/src/index.ts:617-625 方法体读 this.inherited/
+  // this.values/this.dotenvFallback），旧剥离重构 `{resolve}` 裸调 this=undefined 必抛。
+  return { resolve: (resolve as SeamCredentialsRuntime['resolve']).bind(service) };
 }
 
 // R-5 处置（TC-B4-W1③ b 案，显式放弃幻影接线）：旧 peekStorage（ctx.storage 的
@@ -369,8 +371,12 @@ function peekCredentials(ctx: unknown): SeamCredentialsRuntime | undefined {
 function peekBridge(ctx: unknown): { render: SeamBridgeRender } | undefined {
   for (const key of ['bridge', 'webstackBridge']) {
     const service = peekService(ctx, key);
-    if (typeof service?.render === 'function') {
-      return { render: service.render as SeamBridgeRender };
+    const render = service?.render;
+    if (service !== undefined && typeof render === 'function') {
+      // W1c（W3-F2 审计修点4）：bind 保持接收者——卫星 BridgeRenderer.render 是 class
+      // 方法（packages/bridge/src/render.ts:73-81 方法体读 this.queueTail/this.runOnce），
+      // 旧剥离重构 `{render}` 裸调 this=undefined 必抛。bridge 包禁改面零触碰（修在消费侧）。
+      return { render: (render as SeamBridgeRender).bind(service) };
     }
   }
   return undefined;
@@ -514,7 +520,13 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   // ---- systemPrompt seam：守则节 + 动态状态节（W-B-90~92）-----------------
   const systemPrompt = peekService(ctx, 'systemPrompt');
   if (typeof systemPrompt?.section === 'function') {
-    const sectionFn = systemPrompt.section as (s: ReturnType<typeof charterSection>) => () => void;
+    // W1c（W3-F2 修点1）：bind 保持接收者——真宿主 SystemPrompt.section 是 class 方法
+    // （主仓 system-prompt/src/index.ts:452 `this.layers.effect(this.ctx,…)`），旧剥离
+    // `const sectionFn = systemPrompt.section` 裸调 this=undefined 读 .layers 必抛
+    // TypeError（第七件 mount=failed 现行断点）。:681 logger .call 正形先例不动。
+    const sectionFn = (
+      systemPrompt.section as (s: ReturnType<typeof charterSection>) => () => void
+    ).bind(systemPrompt);
     sectionFn(charterSection(HOST_LOCALE));
     let statusDisposer: (() => void) | undefined;
     refreshStatusSection = () => {
@@ -534,7 +546,11 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   // ---- tools seam：诊断 + 批量 + 历史三件（W-B-113/114 + F-113 + F-205）----
   const tools = peekService(ctx, 'tools');
   if (typeof tools?.register === 'function') {
-    const registerFn = tools.register as (definition: Record<string, unknown>) => () => void;
+    // W1c（W3-F2 修点2）：bind 保持接收者——真宿主 ToolRuntime.register 是 class 方法
+    // （主仓 tools/src/index.ts:1047 `this.layers.effect` 同款），剥离裸调必抛。
+    const registerFn = (tools.register as (definition: Record<string, unknown>) => () => void).bind(
+      tools,
+    );
     registerFn(buildStatusTool());
     registerFn(
       // defineTool 返回的 ToolDefinition 缺索引签名，收窄为注册面形状（既有先例）。
