@@ -389,3 +389,161 @@ describe('W1b2 锁⑧ 负对照：旧裸属性读形制在同一 gated ctx 下�
     expect(fixed.storageService).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// W1c 增量轮（W3-F2 接收者剥离修复，TC-B4-W1c）：锁⑨⑩⑪。
+//
+// 教训注释（「fake 掩盖真断点」第五例，主线 W3-F2 定性入卡）：W1b 锁①的 seam
+// mock 全为 plain-object 箭头函数面——无 this 语义，接收者剥离后的裸调恰好可用
+// → 剥离缺陷（9303bf4 之前的 sectionFn/registerFn 剥离裸调）穿透源仓全部既有锁，
+// 直到生产装载首跑（真宿主服务是 class 实例：SystemPrompt.section 方法体
+// `this.layers.effect(this.ctx,…)`、ToolRuntime.register 同款）才炸
+// `TypeError: Cannot read properties of undefined (reading 'layers')` →
+// mount=failed。**mock 必须复刻真服务的类方法接收者语义**：本组 seam mock 一律
+// class 基（方法体读 this 私有注册表——与主仓真实现同构判别力；plain-object
+// 箭头桩在本组禁用，回退兼容锁⑪除外——其保护对象正是无 this 依赖的既有桩形）。
+//
+// 前四例：filehub B01 / CP-1 假桩 / webstack F2 / W1 contract 套绿而真装载红。
+// ---------------------------------------------------------------------------
+
+/** class 基 tools mock：复刻 ToolRuntime.register 的 this 依赖（主仓 tools/src/index.ts:1047 `this.layers.effect` 同构）。 */
+class FakeToolsRuntime {
+  registered: Record<string, unknown>[] = [];
+  register(definition: Record<string, unknown>): () => void {
+    this.registered.push(definition);
+    return () => {};
+  }
+}
+
+/** class 基 systemPrompt mock：复刻 SystemPrompt.section 的 this 依赖（主仓 system-prompt/src/index.ts:452 同构）。 */
+class FakeSystemPrompt {
+  sections: { name: string }[] = [];
+  section(s: { name: string }): () => void {
+    this.sections.push(s);
+    return () => {};
+  }
+}
+
+/** class 基 credentials mock：复刻 LocalCredentialProvider.resolve 的 this 依赖（主仓 credentials-local/src/index.ts:617-625 同构）。 */
+class FakeCredentialsProvider {
+  store = new Map<string, string>([['TEST_KEY', 'secret-v']]);
+  resolvedRefs: string[] = [];
+  async resolve(ref: string): Promise<{ value: string; source: string } | undefined> {
+    this.resolvedRefs.push(ref);
+    const value = this.store.get(ref);
+    return value === undefined ? undefined : { value, source: 'mock' };
+  }
+}
+
+/** class 基 bridge mock：复刻卫星 BridgeRenderer.render 的 this 依赖（packages/bridge/src/render.ts:73-81 this.queueTail 同构）。 */
+class FakeBridgeRenderer {
+  calls: [string, number][] = [];
+  async render(
+    url: string,
+    timeoutMs: number,
+  ): Promise<{ content: string; statusCode: number } | undefined> {
+    this.calls.push([url, timeoutMs]);
+    return { content: 'rendered', statusCode: 200 };
+  }
+}
+
+describe('锁⑨ 生产门控正例（class 基 mock）：gated ctx → apply 后三工具+双 section 在类实例注册表在场', () => {
+  it('sectionFn/registerFn 经 bind 保持接收者：this 依赖方法体全程可用（W3-F2 修形正证）', () => {
+    const tools = new FakeToolsRuntime();
+    const prompt = new FakeSystemPrompt();
+    const logger = fakeLogger();
+    const ctx = gatedCtx({
+      get: (service) => {
+        if (service === 'tools') return tools;
+        if (service === 'systemPrompt') return prompt;
+        return undefined;
+      },
+      faces: { logger: logger.face },
+    });
+    // class 基 mock 判别力前置自证：剥离裸调在**本 mock 上**必抛（非 plain-object 箭头桩的假绿面）。
+    const stripped = tools.register as (d: Record<string, unknown>) => () => void;
+    expect(() => stripped({})).toThrowError(TypeError);
+    expect(() => apply(ctx as unknown as Context, {})).not.toThrow();
+    expect(tools.registered.map((d) => d.name)).toEqual(TOOL_NAMES);
+    // 双 section：charter（webstack:policy）+ status（webstack:status），顺序=装配序。
+    expect(prompt.sections.map((s) => s.name)).toEqual(['webstack:policy', 'webstack:status']);
+    expect(logger.lines.join('\n')).toContain('[webstack] loaded');
+  });
+});
+
+describe('锁⑩ 负对照：旧剥离形（9303bf4 逐字复刻）在 class 基 mock 下必抛 TypeError（判别力自证）', () => {
+  it('sectionFn/registerFn 裸调抛 this=undefined 读注册表；bind 对照形可用；审计修点3/4 剥离重构同款必抛', async () => {
+    const tools = new FakeToolsRuntime();
+    const prompt = new FakeSystemPrompt();
+    // 旧形制一（9303bf4 src/index.ts:517-518 逐字）：剥离后裸调 → class 严格模式 this=undefined
+    // 读 .registered（真宿主为 this.layers）→ TypeError=W3-F2 mount=failed 机制仓内复现。
+    const sectionFn = prompt.section as (s: { name: string }) => () => void;
+    expect(() => sectionFn({ name: 'webstack:policy' })).toThrowError(TypeError);
+    // 旧形制二（:537-538 逐字）：registerFn 裸调同款必抛。
+    const registerFn = tools.register as (d: Record<string, unknown>) => () => void;
+    expect(() => registerFn({ name: 'web_backend_status' })).toThrowError(TypeError);
+    // 对照腿：bind 形（修后形制）在同一 class mock 上不抛且入账。
+    const boundSection = (prompt.section as (s: { name: string }) => () => void).bind(prompt);
+    expect(() => boundSection({ name: 'webstack:policy' })).not.toThrow();
+    expect(prompt.sections).toHaveLength(1);
+    const boundRegister = (tools.register as (d: Record<string, unknown>) => () => void).bind(
+      tools,
+    );
+    expect(() => boundRegister({ name: 'web_backend_status' })).not.toThrow();
+    expect(tools.registered).toHaveLength(1);
+    // 审计修点3（peekCredentials 旧重构 {resolve}）：剥离重建后带接收者调用仍失根——
+    // this=重构对象而非服务实例，this.resolvedRefs undefined → TypeError（async=rejection 形）。
+    const creds = new FakeCredentialsProvider();
+    const legacyCredSeam = { resolve: creds.resolve };
+    expect(typeof legacyCredSeam.resolve).toBe('function'); // 旧探测门放行=缺陷被探测形掩盖
+    await expect(legacyCredSeam.resolve('TEST_KEY')).rejects.toThrowError(TypeError);
+    // bind 对照（修后 peekCredentials 形）：this 恒指服务实例，解析正常入账。
+    const boundCredSeam = { resolve: creds.resolve.bind(creds) };
+    await expect(boundCredSeam.resolve('TEST_KEY')).resolves.toEqual({
+      value: 'secret-v',
+      source: 'mock',
+    });
+    expect(creds.resolvedRefs).toEqual(['TEST_KEY']);
+    // 审计修点4（peekBridge 旧重构 {render}）：同款必抛 vs bind 形可用。
+    const bridge = new FakeBridgeRenderer();
+    const legacyBridgeSeam = { render: bridge.render };
+    expect(typeof legacyBridgeSeam.render).toBe('function'); // 旧「render 为函数即在线」门放行
+    await expect(legacyBridgeSeam.render('https://example.com', 100)).rejects.toThrowError(
+      TypeError,
+    );
+    const boundBridgeSeam = { render: bridge.render.bind(bridge) };
+    await expect(boundBridgeSeam.render('https://example.com', 100)).resolves.toEqual({
+      content: 'rendered',
+      statusCode: 200,
+    });
+    expect(bridge.calls).toEqual([['https://example.com', 100]]);
+  });
+});
+
+describe('锁⑪ 回退兼容不回归：plain-object 箭头桩 ctx（W1b 锁②形）在 bind 修形下仍全绿', () => {
+  it('无 this 依赖 mock 面：bind 无害（箭头函数忽略 thisArg），三工具+双 section 照旧注册', () => {
+    const registered: Record<string, unknown>[] = [];
+    const sections: { name: string }[] = [];
+    const logger = fakeLogger();
+    const ctx = {
+      tools: {
+        register: (d: Record<string, unknown>): (() => void) => {
+          registered.push(d);
+          return () => {};
+        },
+      },
+      systemPrompt: {
+        section: (s: { name: string }): (() => void) => {
+          sections.push(s);
+          return () => {};
+        },
+      },
+      logger: logger.face,
+      inject: (): void => {},
+    };
+    expect(() => apply(ctx as unknown as Context, {})).not.toThrow();
+    expect(registered.map((d) => d.name)).toEqual(TOOL_NAMES);
+    expect(sections.map((s) => s.name)).toEqual(['webstack:policy', 'webstack:status']);
+    expect(logger.lines.join('\n')).toContain('[webstack] loaded');
+  });
+});
