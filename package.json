@@ -4,6 +4,19 @@
   "private": true,
   "description": "Monorepo for the DSH WebStack plugin family: core plugin plus planned satellite packages.",
   "license": "MIT",
+  "main": "./packages/webstack/lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./packages/webstack/lib/index.d.ts",
+      "default": "./packages/webstack/lib/index.js"
+    },
+    "./client": {
+      "types": "./packages/webstack/lib/client.d.ts",
+      "default": "./packages/webstack/lib/client.js"
+    },
+    "./cordis.patch.yml": "./packages/webstack/cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zsagi1368/dsh-webstack.git"
