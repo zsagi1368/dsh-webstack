@@ -4974,8 +4974,10 @@ function peekService(ctx, key) {
 }
 /** 探测宿主 credentials 域（resolve 为函数才算在线）。 */
 function peekCredentials(ctx) {
-	const resolve = peekService(ctx, "credentials")?.resolve;
-	return typeof resolve === "function" ? { resolve } : void 0;
+	const service = peekService(ctx, "credentials");
+	const resolve = service?.resolve;
+	if (service === void 0 || typeof resolve !== "function") return void 0;
+	return { resolve: resolve.bind(service) };
 }
 /**
 * 探测浏览器桥接卫星（T3/F-201）：约定服务键 `bridge`（兼容 `webstackBridge`），
@@ -4984,7 +4986,8 @@ function peekCredentials(ctx) {
 function peekBridge(ctx) {
 	for (const key of ["bridge", "webstackBridge"]) {
 		const service = peekService(ctx, key);
-		if (typeof service?.render === "function") return { render: service.render };
+		const render = service?.render;
+		if (service !== void 0 && typeof render === "function") return { render: render.bind(service) };
 	}
 }
 /** 出站客户端懒加载包装：垂类 oEmbed 腿复用内核 SSRF 四道闸出站通道。 */
@@ -5079,7 +5082,7 @@ function assembleWebstack(ctx, config = {}) {
 	});
 	const systemPrompt = peekService(ctx, "systemPrompt");
 	if (typeof systemPrompt?.section === "function") {
-		const sectionFn = systemPrompt.section;
+		const sectionFn = systemPrompt.section.bind(systemPrompt);
 		sectionFn(charterSection(HOST_LOCALE));
 		let statusDisposer;
 		refreshStatusSection = () => {
@@ -5093,7 +5096,7 @@ function assembleWebstack(ctx, config = {}) {
 	}
 	const tools = peekService(ctx, "tools");
 	if (typeof tools?.register === "function") {
-		const registerFn = tools.register;
+		const registerFn = tools.register.bind(tools);
 		registerFn(buildStatusTool());
 		registerFn(buildBatchSearchTool({ run: async (query) => await aggregator.searchHits({ query }) }, HOST_LOCALE));
 		registerFn(buildHistoryTool({ history }, HOST_LOCALE));
