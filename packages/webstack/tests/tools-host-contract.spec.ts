@@ -28,6 +28,17 @@
  *    JsonSchemaError（判别消息在案：violation 源为 per-property 布尔 required
  *    落非 object 节点——rc.2 JSON-schema 校验器支持根级 required 数组本身，
  *    真宿主对旧形的拒绝发生在 defineTool DSL 层，两腿皆红=判别力自证）。
+ * 5. W4 扩展（TC-B4-W4 锁⑥，Gate-P「三工具实存可调」补全）：三工具真宿主
+ *    注册锁——(a) web_batch_search / web_history 注册定义 schema 过 rc.2 真
+ *    assertSupportedJsonSchema + canonical required 语义等价（布尔位不残留）；
+ *    (b) 装配态 web_history 真 execute（空史只读腿，零网络零写副作用）输出过
+ *    rc.2 真 validateJsonSchemaValue，缺必带键必违规（负对照）；(c) 同源构造面
+ *    web_batch_search（class 基假引擎，零真实网络）与装配定义 schema 深等
+ *    （禁平行桩自证），假引擎混合成败输出过同一真值校验，超限 N+1 在真定义面
+ *    显式拒绝且引擎零触达；(d) 三工具 canonical schema 回灌 author DSL 均被
+ *    rc.2 真 defineTool 拒收（词汇边界负对照——夹具取自真装配捕获产物，
+ *    零镜像漂移）。注册桩抽取为 makeHostCapture() 全 spec 共用（单一真源，
+ *    校验副作用复刻体与正例 1 逐字节同源，禁另起平行桩禁恒成功桩）。
  *
  * 运行：`pnpm test:contract`（= vitest run --config vitest.contract.config.ts）。
  * 默认套件（include 仅 *.test.ts/*.test.tsx）不含本 spec——PluginCenter 32C
@@ -41,6 +52,10 @@ import { defineTool as defineToolRc1 } from '@deepseek-ai/dsh-tools';
 import WebRuntime from '@deepseek-ai/dsh-web';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { assembleWebstack } from '../src/index.ts';
+import { BATCH_MAX_QUERIES } from '../src/kernel/batch.ts';
+import { engineError } from '../src/kernel/errors.ts';
+import type { NormalizedHit } from '../src/kernel/types.ts';
+import { buildBatchSearchTool } from '../src/tools/web-tools.ts';
 
 /** 主仓 dsh-tools barrel 的运行面子集（本 spec 只消费这些符号；主仓只读）。 */
 interface MainToolsModule {
@@ -139,40 +154,49 @@ function legacyToolOptions(): Record<string, unknown> {
   };
 }
 
+/**
+ * 真宿主注册捕获面（单一真源，W4 抽取共用——校验副作用复刻体与原正例 1
+ * 内联桩逐字节同源）：真 cordis Context + WebRuntime + ctx.tools 假面，复刻
+ * 主线 ToolsRuntime.register 的校验副作用（主仓 index.ts:1028-1050 节录；
+ * 铁律 1「桩必须复刻真物校验副作用」，断言体=rc.2 真函数本体，非恒成功桩）。
+ */
+function makeHostCapture(): { registered: Record<string, unknown>[]; assemble: () => void } {
+  const registered: Record<string, unknown>[] = [];
+  const ctx = new Context();
+  ctx.plugin(WebRuntime, {});
+  (ctx as unknown as Record<string, unknown>).tools = {
+    register: (definition: Record<string, unknown>): (() => void) => {
+      const name = definition.name as string;
+      const output = definition.output as Record<string, unknown> | undefined;
+      if (
+        output === undefined ||
+        typeof output !== 'object' ||
+        typeof output.render !== 'function' ||
+        (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')
+      ) {
+        throw new TypeError(`tool "${name}" must declare output { schema, render, … }`);
+      }
+      main.assertSupportedJsonSchema(output.schema); // ← rc.2 真断言（index.ts:84 导出）
+      const timeoutMs = definition.timeoutMs as number | undefined;
+      if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
+        throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`);
+      }
+      if (name === 'run_code') {
+        throw new Error('tool name "run_code" is reserved (RUN_CODE_NAME)');
+      }
+      registered.push(definition);
+      return () => {};
+    },
+  };
+  return { registered, assemble: () => void assembleWebstack(ctx, {}) };
+}
+
 describe('真宿主装配冒烟：status 工具 schema 过 rc.2 真断言（TC-B4-W1 验收 3）', () => {
   it('正例：真装配（ctx.tools 在场）三工具全过真 assertSupportedJsonSchema；canonical schema 语义等价', async () => {
-    const registered: Record<string, unknown>[] = [];
-    const ctx = new Context();
-    ctx.plugin(WebRuntime, {});
-    (ctx as unknown as Record<string, unknown>).tools = {
-      // 复刻主线 ToolsRuntime.register 的校验副作用（主仓 index.ts:1028-1050
-      // 节录；铁律 1：桩必须复刻真物校验副作用，此处断言体=真函数本体）。
-      register: (definition: Record<string, unknown>): (() => void) => {
-        const name = definition.name as string;
-        const output = definition.output as Record<string, unknown> | undefined;
-        if (
-          output === undefined ||
-          typeof output !== 'object' ||
-          typeof output.render !== 'function' ||
-          (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')
-        ) {
-          throw new TypeError(`tool "${name}" must declare output { schema, render, … }`);
-        }
-        main.assertSupportedJsonSchema(output.schema); // ← rc.2 真断言（index.ts:84 导出）
-        const timeoutMs = definition.timeoutMs as number | undefined;
-        if (timeoutMs !== undefined && (!Number.isFinite(timeoutMs) || timeoutMs <= 0)) {
-          throw new TypeError(`tool "${name}" timeoutMs must be a positive finite number`);
-        }
-        if (name === 'run_code') {
-          throw new Error('tool name "run_code" is reserved (RUN_CODE_NAME)');
-        }
-        registered.push(definition);
-        return () => {};
-      },
-    };
+    const { registered, assemble } = makeHostCapture();
 
-    // 真实宿主路径：assembleWebstack → tools seam → register(buildStatusTool())。
-    expect(() => assembleWebstack(ctx, {})).not.toThrow();
+    // 真实宿主路径：assembleWebstack → tools seam → register(buildStatusTool()).
+    expect(assemble).not.toThrow();
     expect(registered.map((d) => d.name)).toEqual([
       'web_backend_status',
       'web_batch_search',
@@ -265,5 +289,143 @@ describe('真宿主装配冒烟：status 工具 schema 过 rc.2 真断言（TC-B
     expect(() => main.assertSupportedJsonSchema(FIXED_STATUS_OUTPUT_SPEC)).toThrowError(
       /unsupported JSON schema/,
     );
+  });
+});
+
+/**
+ * class 基假引擎（this 语义忠实，W1c 第五例教训）：canned 命中 + 单点抛错，
+ * 实例直接满足 BatchSearchToolDeps 结构面（kernel 实际接口形制 = { run }）。
+ * 零真实网络——contract 扩展腿的批量执行面全部走本假引擎。
+ */
+class FakeEngineW4 {
+  readonly calls: string[] = [];
+  async run(query: string): Promise<NormalizedHit[]> {
+    this.calls.push(query);
+    if (query === 'bad') {
+      throw engineError('rate-limited', `engine blew up on ${query}`, {});
+    }
+    return [
+      {
+        url: `https://w4c.example/${query}`,
+        title: `W4C ${query}`,
+        provenance: { engine: 'fake-w4' },
+      },
+    ];
+  }
+}
+
+describe('W4 扩展：三工具真宿主注册锁（Gate-P「三工具实存可调」，TC-B4-W4 锁⑥）', () => {
+  let registered: Record<string, unknown>[] = [];
+
+  function definitionOf(name: string): Record<string, unknown> {
+    const definition = registered.find((d) => d.name === name);
+    if (definition === undefined) throw new Error(`tool "${name}" was not registered`);
+    return definition;
+  }
+
+  function outputSchemaOf(name: string): Record<string, unknown> {
+    return (definitionOf(name).output as Record<string, unknown>).schema as Record<string, unknown>;
+  }
+
+  beforeAll(() => {
+    const capture = makeHostCapture();
+    expect(capture.assemble).not.toThrow(); // 真装配（rc.2 真断言在注册桩内逐工具执行）
+    registered = capture.registered;
+  });
+
+  it('正例：web_batch_search / web_history 注册 schema 过 rc.2 真断言 + canonical required 语义等价', () => {
+    const batch = outputSchemaOf('web_batch_search');
+    const history = outputSchemaOf('web_history');
+    main.assertSupportedJsonSchema(batch); // 幂等复验：真断言直过不抛
+    main.assertSupportedJsonSchema(history);
+    // per-property required:true 被 defineTool 提升为根级 required 数组（声明序），
+    // 布尔位不残留（与 status 腿同款转换语义——author DSL → canonical 词汇边界）。
+    expect(batch.required).toEqual(['total', 'okCount', 'failedCount', 'items']);
+    expect(history.required).toEqual(['action', 'count', 'entries']);
+    const batchProps = batch.properties as Record<string, Record<string, unknown>>;
+    expect(batchProps.total!.required).toBeUndefined();
+    expect(batchProps.items!.required).toBeUndefined();
+    const historyProps = history.properties as Record<string, Record<string, unknown>>;
+    expect(historyProps.action!.required).toBeUndefined();
+    expect(historyProps.count!.required).toBeUndefined();
+    expect(batch.additionalProperties).toBe(false);
+    expect(history.additionalProperties).toBe(false);
+  });
+
+  it('正例+负对照：装配态 web_history 真 execute（零网络只读腿）过 rc.2 真值校验；缺必带键必违规', async () => {
+    const schema = outputSchemaOf('web_history');
+    const execute = definitionOf('web_history').execute as (
+      args: unknown,
+      exec: unknown,
+    ) => Promise<unknown>;
+    // 只读腿：空史 list——零网络、零文件系统写副作用（clear/record 均不触发）。
+    const value = await execute({ action: 'list' }, {});
+    expect(value).toEqual({ action: 'list', count: 0, entries: [] }); // 空史边界（锁④同源语义）
+    expect(main.validateJsonSchemaValue(schema, value)).toEqual([]); // rc.2 真值校验零违规
+    const withoutCount = Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(([k]) => k !== 'count'),
+    );
+    expect(main.validateJsonSchemaValue(schema, withoutCount).length).toBeGreaterThan(0); // 红腿
+  });
+
+  it('正例+负对照：同源构造面 web_batch_search 假引擎输出过装配 schema 真值校验；超限 N+1 真定义面显式拒绝', async () => {
+    const schema = outputSchemaOf('web_batch_search');
+    // 禁平行桩自证：本地构造（class 基假引擎，零网络）与真宿主注册定义的
+    // schema 深等——同一 author spec、同一 rc.1 转换链，值校验面即真装配面。
+    const engine = new FakeEngineW4();
+    const local = buildBatchSearchTool(engine) as unknown as {
+      output: { schema: unknown };
+      execute: (args: unknown, exec: unknown) => Promise<unknown>;
+    };
+    expect(local.output.schema).toEqual(schema);
+
+    const value = await local.execute({ queries: ['ok-1', 'bad', 'ok-2'] }, {});
+    expect(main.validateJsonSchemaValue(schema, value)).toEqual([]); // 部分失败 canonical 值零违规
+    expect(value).toMatchObject({ total: 3, okCount: 2, failedCount: 1 });
+
+    const withoutItems = Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).filter(([k]) => k !== 'items'),
+    );
+    expect(main.validateJsonSchemaValue(schema, withoutItems).length).toBeGreaterThan(0); // 红腿
+
+    // 超限 N+1（锁③同款反例）在真宿主定义面显式拒绝，假引擎零触达（拒绝先于执行）。
+    // 全新引擎实例：隔离前一腿的 calls 记录，「零触达」断言只观测本腿。
+    const overflowEngine = new FakeEngineW4();
+    const overflowTool = buildBatchSearchTool(overflowEngine) as unknown as {
+      output: { schema: unknown };
+      execute: (args: unknown, exec: unknown) => Promise<unknown>;
+    };
+    expect(overflowTool.output.schema).toEqual(schema); // 同源构造面同一 schema
+    await expect(
+      overflowTool.execute(
+        { queries: Array.from({ length: BATCH_MAX_QUERIES + 1 }, (_, i) => `q${i}`) },
+        {},
+      ),
+    ).rejects.toMatchObject({
+      name: 'EngineError',
+      code: 'unrepresentable',
+      detail: 'batch.limit-exceeded',
+    });
+    expect(overflowEngine.calls).toHaveLength(0);
+  });
+
+  it('负对照：三工具 canonical schema 回灌 rc.2 author DSL 均被拒收（词汇边界；夹具=真装配捕获，零镜像漂移）', () => {
+    for (const name of ['web_backend_status', 'web_batch_search', 'web_history']) {
+      const canonical = outputSchemaOf(name);
+      // 真装配捕获的 canonical schema 自带根级 required 数组（defineTool 提升产物）
+      // ——author DSL 的拒收词汇，回灌必抛（与 LEGACY 负对照 (a) 同款真抛点）。
+      expect(Array.isArray(canonical.required)).toBe(true);
+      expect(() =>
+        main.defineTool({
+          name,
+          description: 'canonical-fed-back fixture (W4 lock 6)',
+          parameters: {}, // 置空：抛点锁定在 output schema 根级 required，免受参数面干扰
+          output: { schema: canonical, render: () => [{ type: 'text', text: '' }] },
+          async execute() {
+            return {};
+          },
+        }),
+      ).toThrowError(/is not supported by the value schema DSL/);
+    }
   });
 });
