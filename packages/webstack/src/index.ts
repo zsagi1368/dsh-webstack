@@ -523,7 +523,7 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
     // W1c（W3-F2 修点1）：bind 保持接收者——真宿主 SystemPrompt.section 是 class 方法
     // （主仓 system-prompt/src/index.ts:452 `this.layers.effect(this.ctx,…)`），旧剥离
     // `const sectionFn = systemPrompt.section` 裸调 this=undefined 读 .layers 必抛
-    // TypeError（第七件 mount=failed 现行断点）。:681 logger .call 正形先例不动。
+    // TypeError（第七件 mount=failed 现行断点）。:691 logger .call 正形先例不动（REVIEW-W1c 建议2 勘误清偿，原误值 :681；锚=db8d4bb 态单行替换零位移）。
     const sectionFn = (
       systemPrompt.section as (s: ReturnType<typeof charterSection>) => () => void
     ).bind(systemPrompt);
