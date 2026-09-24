@@ -86,7 +86,7 @@
         "spawn": false,
         "exec": true,
         "allowedCommands": [
-          "reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
+          "reg"
         ]
       }
     },
