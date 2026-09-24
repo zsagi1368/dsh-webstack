@@ -91,9 +91,13 @@ export class FilePersistenceAdapter implements PersistenceAdapter {
   async set(key: string, value: unknown, ttlMs: number): Promise<void> {
     try {
       const file = this.fileFor(key);
-      await mkdir(join(file, '..'), { recursive: true });
+      // F6（SECURITY-B4-D1a）：目录 0o700 / 文件 0o600——缓存信封含用户搜索
+      // 历史与查询词原文，POSIX 多用户主机上不得对其他本地用户可读。mode 仅
+      // 对**新建**目录/文件生效（POSIX 语义）；win32 忽略 mode 位，无副作用
+      // （主目标平台 ACL 继承用户配置，D1a F6 定级依据）。
+      await mkdir(join(file, '..'), { recursive: true, mode: 0o700 });
       const envelope: StoredEnvelope = { value, storedAt: Date.now(), ttlMs };
-      await writeFile(file, JSON.stringify(envelope), 'utf8');
+      await writeFile(file, JSON.stringify(envelope), { encoding: 'utf8', mode: 0o600 });
     } catch {
       // 磁盘故障静默降级：写失败等价于「未持久化」，L0 仍在。
     }
