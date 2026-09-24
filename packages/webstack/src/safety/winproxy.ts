@@ -14,10 +14,41 @@
  */
 
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** 系统代理所在的注册表键（HKCU 当前用户视图）。 */
 const INTERNET_SETTINGS_KEY =
   'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
+
+/**
+ * F4（SECURITY-B4-D1a，防御深度加固）：reg.exe 绝对路径解析。
+ * 裸名 `reg` 在 win32 CreateProcess 搜索序（应用目录 → CWD → System32）下
+ * 可被 CWD 种植体劫持（patterns ⑦「spawn 禁裸名」）。解析 `%SystemRoot%\
+ * System32\reg.exe`（windir 兜底），并做存在性校验；解析不到返回
+ * undefined——调用方跳过探测（resolve(undefined)），与「探测永不抛错」
+ * 语义相容，绝不回退裸名（PC2/FB1 修形同族对齐）。
+ */
+function resolveRegExePath(): string | undefined {
+  // 键形多态回退：标准 Windows 进程为 `SystemRoot`（内核置位）；Git Bash/MSYS
+  // 宿主环境会转成全大写 `SYSTEMROOT`——同一变量的 shell 层键形差异，不应使
+  // 尽力而为探测静默失效（安全语义不变：值仍来自宿主进程环境）。
+  let systemRoot: string | undefined;
+  for (const key of ['SystemRoot', 'SYSTEMROOT', 'windir', 'WINDIR'] as const) {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.trim() !== '') {
+      systemRoot = value;
+      break;
+    }
+  }
+  if (systemRoot === undefined) return undefined;
+  const candidate = join(systemRoot, 'System32', 'reg.exe');
+  try {
+    return existsSync(candidate) ? candidate : undefined;
+  } catch {
+    return undefined; // 存在性探测自身故障同样归入「解析不到即跳过」
+  }
+}
 
 /** 探测结果缓存时长（毫秒）。 */
 export const WINDOWS_PROXY_CACHE_TTL_MS = 5 * 60_000;
@@ -39,10 +70,22 @@ export function resetWindowsProxyCacheForTest(): void {
  * 执行一次 reg query 并取目标值的最后一个空白分隔 token。
  * 输出行形如 `    ProxyEnable    REG_DWORD    0x1`；reg 缺失/键不存在/
  * 任何异常一律 resolve(undefined)（探测永不抛错）。
+ *
+ * F4：命令位一律用 {@link resolveRegExePath} 的绝对路径；解析不到即跳过
+ * （不派生任何子进程）。F5 参数约束申报（package.json `dsh.sandbox.process.
+ * allowedCommands` 为可强制形 `["reg"]`=宿主首 token 精确匹配点；参数面由
+ * 本模块钉死）：argv 恒为 `query <INTERNET_SETTINGS_KEY> /v <name>`——只读
+ * query 子命令、固定 HKCU 键路径、name ∈ {ProxyEnable, ProxyServer} 两枚举
+ * 调用位，零用户可控 token，无参数注入面。
  */
 function regQueryValue(name: string): Promise<string | undefined> {
   return new Promise((resolve) => {
-    execFile('reg', ['query', INTERNET_SETTINGS_KEY, '/v', name], (error, stdout) => {
+    const regExe = resolveRegExePath();
+    if (regExe === undefined) {
+      resolve(undefined); // F4：绝对路径解析不到即跳过探测（绝不裸名回退）
+      return;
+    }
+    execFile(regExe, ['query', INTERNET_SETTINGS_KEY, '/v', name], (error, stdout) => {
       if (error !== null || typeof stdout !== 'string') {
         resolve(undefined);
         return;
@@ -92,6 +135,14 @@ export async function getWindowsSystemProxy(): Promise<string | undefined> {
  * 把代理串注入 HTTPS_PROXY / HTTP_PROXY 环境变量（尽力而为层，见模块头
  * 诚实边界说明）。proxy 为 undefined/空白时不动环境。仅应在用户配置开启时
  * 调用——本函数不判断开关，职责单一。
+ *
+ * F5 副作用申报（SECURITY-B4-D1a）：本函数**写宿主进程 env**
+ * （process.env.HTTPS_PROXY / HTTP_PROXY）= 跨插件全局副作用——写入后宿主
+ * 全部出站 HTTP(S) 继承该代理值（值来自 HKCU 注册表 ProxyServer）。现有
+ * `dsh.sandbox.environment` 申报 schema 无表达此面的维度（whitelist/blacklist
+ * /clear 均为读侧或清空语义），本注释即最小申报形；契约字段扩展
+ * （如 environment.mutate）待主线裁定（TC-B4-WS1 回执 escalate 项）。
+ * 唯一调用位 = src/index.ts `config.winProxyFallback === true` 门控（默认关）。
  */
 export function applyProxyToEnv(proxy?: string): void {
   const trimmed = proxy?.trim();
