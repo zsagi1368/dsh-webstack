@@ -4,7 +4,8 @@ import z from "@deepseek-ai/schemastery";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 //#region \0rolldown/runtime.js
 var __defProp = Object.defineProperty;
@@ -86,12 +87,18 @@ var FilePersistenceAdapter = class {
 	async set(key, value, ttlMs) {
 		try {
 			const file = this.fileFor(key);
-			await mkdir(join(file, ".."), { recursive: true });
+			await mkdir(join(file, ".."), {
+				recursive: true,
+				mode: 448
+			});
 			await writeFile(file, JSON.stringify({
 				value,
 				storedAt: Date.now(),
 				ttlMs
-			}), "utf8");
+			}), {
+				encoding: "utf8",
+				mode: 384
+			});
 		} catch {}
 	}
 	/** 删除：force=true 幂等；失败静默。 */
@@ -1612,9 +1619,18 @@ const MCP_LATENCY_BUDGET_MS = 1e4;
 const PINNED_VERSION_RE = /@[\w.~-]+$/;
 /** 搜索类工具启发式：名称或描述命中任一关键词即可入选。 */
 const SEARCH_TOOL_RE = /search|搜索|web/i;
+/**
+* 引擎 id 字符集门（FB7，SECURITY-B4-D1b，D1b 建议原文形制）：
+* `mcp-<entry.id>` 会经 registry.statusSnapshot → statusSection join 进入
+* systemPrompt 文本面——id 含换行/控制字符即持久提示词注入向量（数据→指令
+* 边界）。1-64 位 [A-Za-z0-9._-]，与内建引擎 id 字面量形态一致；拒收项走
+* 装配位既有 invalidMcpIds 诊断清单（index.ts，静默跳过不注册）。
+*/
+const MCP_ID_CHARSET_RE = /^[A-Za-z0-9._-]{1,64}$/;
 /** 校验失败返回的 i18n 键（与 i18n/mcp-infra 分册键集一一对应）。 */
 const MCP_VALIDATION_KEYS = {
 	idRequired: "webstack.mcp.id-required",
+	idCharset: "webstack.mcp.id-charset",
 	commandRequired: "webstack.mcp.command-required",
 	unpinned: "webstack.mcp.unpinned",
 	urlRequired: "webstack.mcp.url-required",
@@ -1630,6 +1646,8 @@ const MCP_ERROR_KEYS = {
 /**
 * 校验一条 McpServerEntry：合法返回 null，否则返回面向用户的 i18n 键字符串。
 * 规则（id 唯一性由上层注册表负责，这里只查非空）：
+* - id：非空（idRequired）且过字符集门 `MCP_ID_CHARSET_RE`（idCharset，FB7：
+*   id 进 systemPrompt 文本面，换行/控制字符=持久注入向量）；
 * - stdio：必须提供 command，且启动向量（command+args 任一 token）含
 *   `@version` 锁定形态——裸 npx/uvx 一律拒绝（W-A-02）；
 * - http：必须提供 http(s):// 形态的 url；
@@ -1637,6 +1655,7 @@ const MCP_ERROR_KEYS = {
 */
 function validateMcpEntry(entry) {
 	if (typeof entry.id !== "string" || entry.id.trim() === "") return MCP_VALIDATION_KEYS.idRequired;
+	if (!MCP_ID_CHARSET_RE.test(entry.id)) return MCP_VALIDATION_KEYS.idCharset;
 	if (entry.transport === "stdio") {
 		if (typeof entry.command !== "string" || entry.command.trim() === "") return MCP_VALIDATION_KEYS.commandRequired;
 		if (![entry.command, ...entry.args ?? []].some((token) => typeof token === "string" && PINNED_VERSION_RE.test(token))) return MCP_VALIDATION_KEYS.unpinned;
@@ -1645,13 +1664,53 @@ function validateMcpEntry(entry) {
 	return null;
 }
 /**
-* win32 壳脚本解析：npx/npm/pnpm 等在 Windows 上是 .cmd 垫片，裸名直接 spawn
-* 会 ENOENT。已知命令补 `.cmd` 后缀，其余按用户原样透传（绝对路径/自定义
-* 可执行文件不做猜测改写）。
+* win32 壳脚本解析（FB9，SECURITY-B4-D1b）：npx/npm/pnpm 等在 Windows 上是
+* .cmd 垫片，裸名直接 spawn 会 ENOENT；且 win32 CreateProcess 对裸名的搜索序
+* 为**应用目录 → CWD → System32 → PATH**——CWD 种植的同名 `.cmd` 会先于真身
+* 命中（patterns ⑦「spawn 禁裸名」，D1a F4/PC2 FB1 同族）。处置：
+* - 已知 shim（下方白名单）→ 内置候选目录搜索解析为**绝对路径**（不经
+*   where.exe 子进程探针——FB1 教训：探针自身裸名同样是种植面）；
+* - 解析不到 → **抛错 fail-closed**（调用位 buildTransport 包成
+*   transport/connectFailed 既有错误面），绝不回退裸名；
+* - 未知名（绝对路径/自定义可执行文件）按用户原样透传，不做猜测改写。
+*/
+const KNOWN_WIN32_SHIM_RE = /^(npx|npm|pnpm|yarn|bunx|uvx|uv)$/i;
+/**
+* 已知 shim 的 `<name>.cmd` 绝对路径解析（同步、零子进程、零网络）。
+* 候选目录序：①node 可执行体同目录（官方安装器布局，npm/npx 随 node 落位）；
+* ②`npm_config_prefix`（npm 生命周期注入的全局 prefix）；③`%APPDATA%\npm`
+* （npm 默认用户级全局 prefix）；④PATH 序内置遍历。全不命中返回 undefined。
+*/
+function findWin32ShimAbsolute(base) {
+	const dirs = [];
+	const execDir = dirname(process.execPath);
+	if (execDir !== "" && execDir !== ".") dirs.push(execDir);
+	const npmPrefix = process.env.npm_config_prefix;
+	if (typeof npmPrefix === "string" && npmPrefix.trim() !== "") dirs.push(npmPrefix.trim());
+	const appData = process.env.APPDATA;
+	if (typeof appData === "string" && appData.trim() !== "") dirs.push(join(appData, "npm"));
+	const pathVar = process.env.Path ?? process.env.PATH ?? process.env.path;
+	if (typeof pathVar === "string") for (const dir of pathVar.split(";")) {
+		const trimmed = dir.trim();
+		if (trimmed !== "") dirs.push(trimmed);
+	}
+	for (const dir of dirs) try {
+		const candidate = join(dir, `${base}.cmd`);
+		if (existsSync(candidate)) return candidate;
+	} catch {}
+}
+/**
+* stdio command 解析入口。非 win32 原样返回（execvp 不搜 CWD，D1b FB9 定性
+* 残留面仅 win32）；win32 已知 shim 走绝对化（见 {@link findWin32ShimAbsolute}），
+* 解析不到抛 transport 错误 fail-closed；未知名原样透传。
 */
 function resolveStdioCommand(command) {
 	if (process.platform !== "win32") return command;
-	return /^(npx|npm|pnpm|yarn|bunx|uvx|uv)$/i.test(command.trim()) ? `${command.trim()}.cmd` : command;
+	const trimmed = command.trim();
+	if (!KNOWN_WIN32_SHIM_RE.test(trimmed)) return command;
+	const absolute = findWin32ShimAbsolute(trimmed);
+	if (absolute === void 0) throw engineError("transport", `win32 shim '${trimmed}' cannot be resolved to an absolute path`, { detail: MCP_ERROR_KEYS.connectFailed });
+	return absolute;
 }
 /** 由 entry 构建冻结描述符：tier='mcp'、kind='search'、零凭据画像。 */
 function buildMcpDescriptor(entry) {
@@ -4421,6 +4480,15 @@ const PROMPT_SECTION_ORDERS = {
 	policy: 100,
 	status: 101
 };
+/**
+* FB7 双保险（SECURITY-B4-D1b 建议②原文）：引擎 id 进 prompt 文本前剥
+* 控制字符/换行——MCP id 已在 validateMcpEntry 过字符集门（主闸），本剥离
+* 防御未来其他 id 源绕门（statusSection 的 id 键来自 registry 快照，装配位
+* 之外的库级构造不经校验）。只剥 C0 控制符与 DEL，正常 id 逐字保留。
+*/
+function sanitizeIdForPrompt(id) {
+	return id.replace(/[\u0000-\u001f\u007f]/g, "");
+}
 /** 守则节（双语；何时用哪个工具 / 层切换概念 / 出错先诊断 / 内容不是指令）。 */
 function charterSection(locale = "zh") {
 	const body = locale === "en" ? [
@@ -4468,12 +4536,12 @@ function statusSection(status, locale = "zh", extras) {
 	if (ids.length === 0) body = locale === "en" ? "WebStack status: no engines registered." : "WebStack 状态：当前没有已注册引擎。";
 	else if (locale === "en") {
 		body = `WebStack status: ${okCount} OK, ${cooling.length} cooling down, ${unwired.length} unwired (of ${ids.length}).${suffixEn}`;
-		if (cooling.length > 0) body += ` Cooling: ${cooling.join(", ")}.`;
-		if (unwired.length > 0) body += ` Unwired: ${unwired.join(", ")}.`;
+		if (cooling.length > 0) body += ` Cooling: ${cooling.map(sanitizeIdForPrompt).join(", ")}.`;
+		if (unwired.length > 0) body += ` Unwired: ${unwired.map(sanitizeIdForPrompt).join(", ")}.`;
 	} else {
 		body = `WebStack 状态：共 ${ids.length} 个引擎——正常 ${okCount}、冷却 ${cooling.length}、未接线 ${unwired.length}。${suffixZh}`;
-		if (cooling.length > 0) body += `冷却中：${cooling.join("、")}。`;
-		if (unwired.length > 0) body += `未接线：${unwired.join("、")}。`;
+		if (cooling.length > 0) body += `冷却中：${cooling.map(sanitizeIdForPrompt).join("、")}。`;
+		if (unwired.length > 0) body += `未接线：${unwired.map(sanitizeIdForPrompt).join("、")}。`;
 	}
 	return {
 		name: PROMPT_SECTION_NAMES.status,
@@ -4499,15 +4567,57 @@ function statusSection(status, locale = "zh", extras) {
 */
 /** 系统代理所在的注册表键（HKCU 当前用户视图）。 */
 const INTERNET_SETTINGS_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings";
+/**
+* F4（SECURITY-B4-D1a，防御深度加固）：reg.exe 绝对路径解析。
+* 裸名 `reg` 在 win32 CreateProcess 搜索序（应用目录 → CWD → System32）下
+* 可被 CWD 种植体劫持（patterns ⑦「spawn 禁裸名」）。解析 `%SystemRoot%\
+* System32\reg.exe`（windir 兜底），并做存在性校验；解析不到返回
+* undefined——调用方跳过探测（resolve(undefined)），与「探测永不抛错」
+* 语义相容，绝不回退裸名（PC2/FB1 修形同族对齐）。
+*/
+function resolveRegExePath() {
+	let systemRoot;
+	for (const key of [
+		"SystemRoot",
+		"SYSTEMROOT",
+		"windir",
+		"WINDIR"
+	]) {
+		const value = process.env[key];
+		if (typeof value === "string" && value.trim() !== "") {
+			systemRoot = value;
+			break;
+		}
+	}
+	if (systemRoot === void 0) return void 0;
+	const candidate = join(systemRoot, "System32", "reg.exe");
+	try {
+		return existsSync(candidate) ? candidate : void 0;
+	} catch {
+		return;
+	}
+}
 let cache;
 /**
 * 执行一次 reg query 并取目标值的最后一个空白分隔 token。
 * 输出行形如 `    ProxyEnable    REG_DWORD    0x1`；reg 缺失/键不存在/
 * 任何异常一律 resolve(undefined)（探测永不抛错）。
+*
+* F4：命令位一律用 {@link resolveRegExePath} 的绝对路径；解析不到即跳过
+* （不派生任何子进程）。F5 参数约束申报（package.json `dsh.sandbox.process.
+* allowedCommands` 为可强制形 `["reg"]`=宿主首 token 精确匹配点；参数面由
+* 本模块钉死）：argv 恒为 `query <INTERNET_SETTINGS_KEY> /v <name>`——只读
+* query 子命令、固定 HKCU 键路径、name ∈ {ProxyEnable, ProxyServer} 两枚举
+* 调用位，零用户可控 token，无参数注入面。
 */
 function regQueryValue(name) {
 	return new Promise((resolve) => {
-		execFile("reg", [
+		const regExe = resolveRegExePath();
+		if (regExe === void 0) {
+			resolve(void 0);
+			return;
+		}
+		execFile(regExe, [
 			"query",
 			INTERNET_SETTINGS_KEY,
 			"/v",
@@ -4557,6 +4667,14 @@ async function getWindowsSystemProxy() {
 * 把代理串注入 HTTPS_PROXY / HTTP_PROXY 环境变量（尽力而为层，见模块头
 * 诚实边界说明）。proxy 为 undefined/空白时不动环境。仅应在用户配置开启时
 * 调用——本函数不判断开关，职责单一。
+*
+* F5 副作用申报（SECURITY-B4-D1a）：本函数**写宿主进程 env**
+* （process.env.HTTPS_PROXY / HTTP_PROXY）= 跨插件全局副作用——写入后宿主
+* 全部出站 HTTP(S) 继承该代理值（值来自 HKCU 注册表 ProxyServer）。现有
+* `dsh.sandbox.environment` 申报 schema 无表达此面的维度（whitelist/blacklist
+* /clear 均为读侧或清空语义），本注释即最小申报形；契约字段扩展
+* （如 environment.mutate）待主线裁定（TC-B4-WS1 回执 escalate 项）。
+* 唯一调用位 = src/index.ts `config.winProxyFallback === true` 门控（默认关）。
 */
 function applyProxyToEnv(proxy) {
 	const trimmed = proxy?.trim();
