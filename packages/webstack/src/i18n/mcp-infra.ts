@@ -16,6 +16,7 @@
 export type McpInfraI18nKey =
   | 'webstack.mcp.unpinned'
   | 'webstack.mcp.id-required'
+  | 'webstack.mcp.id-charset'
   | 'webstack.mcp.command-required'
   | 'webstack.mcp.url-required'
   | 'webstack.mcp.cred-ref-empty'
@@ -32,6 +33,8 @@ export const mcpInfraMessagesZh: Readonly<Record<McpInfraI18nKey, string>> = Obj
   'webstack.mcp.unpinned':
     '该 MCP 服务器命令缺少 @version 版本锁定（裸 npx/uvx 已被拒绝）。请把包名写成「包名@具体版本号」形式，避免上游发版悄悄改变行为。',
   'webstack.mcp.id-required': 'MCP 服务器条目缺少 id。请为本条目填写一个非空且唯一的标识符。',
+  'webstack.mcp.id-charset':
+    'MCP 服务器条目的 id 含有不允许的字符。id 会被渲染进状态提示文本，仅允许 1-64 位字母、数字、点、下划线与连字符（A-Z a-z 0-9 . _ -），请改用该字符集内的标识符。',
   'webstack.mcp.command-required':
     'stdio 型 MCP 条目必须提供启动命令 command。请在条目中补充可执行命令及其启动参数。',
   'webstack.mcp.url-required':
@@ -59,6 +62,8 @@ export const mcpInfraMessagesEn: Readonly<Record<McpInfraI18nKey, string>> = Obj
     'The MCP server command is missing an @version pin (bare npx/uvx rejected). Write the package as "package@exact-version" so upstream releases can\'t silently change behavior.',
   'webstack.mcp.id-required':
     'The MCP server entry is missing an id. Provide a non-empty, unique identifier for this entry.',
+  'webstack.mcp.id-charset':
+    'The MCP server entry id contains disallowed characters. The id is rendered into the status prompt text, so only 1-64 characters from letters, digits, dot, underscore and hyphen (A-Z a-z 0-9 . _ -) are accepted; rename the entry within this charset.',
   'webstack.mcp.command-required':
     'A stdio MCP entry must provide a launch command. Add the executable command and its arguments to the entry.',
   'webstack.mcp.url-required':

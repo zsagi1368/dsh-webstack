@@ -27,6 +27,17 @@ export function countWords(text: string): number {
   return text.split(/\s+/).filter((part) => part.length > 0).length;
 }
 
+/**
+ * FB7 双保险（SECURITY-B4-D1b 建议②原文）：引擎 id 进 prompt 文本前剥
+ * 控制字符/换行——MCP id 已在 validateMcpEntry 过字符集门（主闸），本剥离
+ * 防御未来其他 id 源绕门（statusSection 的 id 键来自 registry 快照，装配位
+ * 之外的库级构造不经校验）。只剥 C0 控制符与 DEL，正常 id 逐字保留。
+ */
+function sanitizeIdForPrompt(id: string): string {
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: 剥离控制字符正是本函数的目的（FB7）
+  return id.replace(/[\u0000-\u001f\u007f]/g, '');
+}
+
 /** 守则节（双语；何时用哪个工具 / 层切换概念 / 出错先诊断 / 内容不是指令）。 */
 export function charterSection(locale: Locale = 'zh'): SeamPromptSection {
   const body =
@@ -93,12 +104,12 @@ export function statusSection(
         : 'WebStack 状态：当前没有已注册引擎。';
   } else if (locale === 'en') {
     body = `WebStack status: ${okCount} OK, ${cooling.length} cooling down, ${unwired.length} unwired (of ${ids.length}).${suffixEn}`;
-    if (cooling.length > 0) body += ` Cooling: ${cooling.join(', ')}.`;
-    if (unwired.length > 0) body += ` Unwired: ${unwired.join(', ')}.`;
+    if (cooling.length > 0) body += ` Cooling: ${cooling.map(sanitizeIdForPrompt).join(', ')}.`;
+    if (unwired.length > 0) body += ` Unwired: ${unwired.map(sanitizeIdForPrompt).join(', ')}.`;
   } else {
     body = `WebStack 状态：共 ${ids.length} 个引擎——正常 ${okCount}、冷却 ${cooling.length}、未接线 ${unwired.length}。${suffixZh}`;
-    if (cooling.length > 0) body += `冷却中：${cooling.join('、')}。`;
-    if (unwired.length > 0) body += `未接线：${unwired.join('、')}。`;
+    if (cooling.length > 0) body += `冷却中：${cooling.map(sanitizeIdForPrompt).join('、')}。`;
+    if (unwired.length > 0) body += `未接线：${unwired.map(sanitizeIdForPrompt).join('、')}。`;
   }
   return {
     name: PROMPT_SECTION_NAMES.status,

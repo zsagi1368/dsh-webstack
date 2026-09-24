@@ -19,6 +19,8 @@
  * @module webstack/engines/mcp-generic
  */
 
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { narrowArray, narrowRecord, narrowString, parseJsonLoose } from '../fetch/narrowing.ts';
 import { engineError, isEngineError } from '../kernel/errors.ts';
 import type {
@@ -47,9 +49,19 @@ const PINNED_VERSION_RE = /@[\w.~-]+$/;
 /** 搜索类工具启发式：名称或描述命中任一关键词即可入选。 */
 const SEARCH_TOOL_RE = /search|搜索|web/i;
 
+/**
+ * 引擎 id 字符集门（FB7，SECURITY-B4-D1b，D1b 建议原文形制）：
+ * `mcp-<entry.id>` 会经 registry.statusSnapshot → statusSection join 进入
+ * systemPrompt 文本面——id 含换行/控制字符即持久提示词注入向量（数据→指令
+ * 边界）。1-64 位 [A-Za-z0-9._-]，与内建引擎 id 字面量形态一致；拒收项走
+ * 装配位既有 invalidMcpIds 诊断清单（index.ts，静默跳过不注册）。
+ */
+const MCP_ID_CHARSET_RE = /^[A-Za-z0-9._-]{1,64}$/;
+
 /** 校验失败返回的 i18n 键（与 i18n/mcp-infra 分册键集一一对应）。 */
 export const MCP_VALIDATION_KEYS = {
   idRequired: 'webstack.mcp.id-required',
+  idCharset: 'webstack.mcp.id-charset',
   commandRequired: 'webstack.mcp.command-required',
   unpinned: 'webstack.mcp.unpinned',
   urlRequired: 'webstack.mcp.url-required',
@@ -67,6 +79,8 @@ export const MCP_ERROR_KEYS = {
 /**
  * 校验一条 McpServerEntry：合法返回 null，否则返回面向用户的 i18n 键字符串。
  * 规则（id 唯一性由上层注册表负责，这里只查非空）：
+ * - id：非空（idRequired）且过字符集门 `MCP_ID_CHARSET_RE`（idCharset，FB7：
+ *   id 进 systemPrompt 文本面，换行/控制字符=持久注入向量）；
  * - stdio：必须提供 command，且启动向量（command+args 任一 token）含
  *   `@version` 锁定形态——裸 npx/uvx 一律拒绝（W-A-02）；
  * - http：必须提供 http(s):// 形态的 url；
@@ -75,6 +89,9 @@ export const MCP_ERROR_KEYS = {
 export function validateMcpEntry(entry: McpServerEntry): string | null {
   if (typeof entry.id !== 'string' || entry.id.trim() === '') {
     return MCP_VALIDATION_KEYS.idRequired;
+  }
+  if (!MCP_ID_CHARSET_RE.test(entry.id)) {
+    return MCP_VALIDATION_KEYS.idCharset;
   }
   if (entry.transport === 'stdio') {
     if (typeof entry.command !== 'string' || entry.command.trim() === '') {
@@ -140,14 +157,72 @@ export interface SdkBundle {
 }
 
 /**
- * win32 壳脚本解析：npx/npm/pnpm 等在 Windows 上是 .cmd 垫片，裸名直接 spawn
- * 会 ENOENT。已知命令补 `.cmd` 后缀，其余按用户原样透传（绝对路径/自定义
- * 可执行文件不做猜测改写）。
+ * win32 壳脚本解析（FB9，SECURITY-B4-D1b）：npx/npm/pnpm 等在 Windows 上是
+ * .cmd 垫片，裸名直接 spawn 会 ENOENT；且 win32 CreateProcess 对裸名的搜索序
+ * 为**应用目录 → CWD → System32 → PATH**——CWD 种植的同名 `.cmd` 会先于真身
+ * 命中（patterns ⑦「spawn 禁裸名」，D1a F4/PC2 FB1 同族）。处置：
+ * - 已知 shim（下方白名单）→ 内置候选目录搜索解析为**绝对路径**（不经
+ *   where.exe 子进程探针——FB1 教训：探针自身裸名同样是种植面）；
+ * - 解析不到 → **抛错 fail-closed**（调用位 buildTransport 包成
+ *   transport/connectFailed 既有错误面），绝不回退裸名；
+ * - 未知名（绝对路径/自定义可执行文件）按用户原样透传，不做猜测改写。
+ */
+const KNOWN_WIN32_SHIM_RE = /^(npx|npm|pnpm|yarn|bunx|uvx|uv)$/i;
+
+/**
+ * 已知 shim 的 `<name>.cmd` 绝对路径解析（同步、零子进程、零网络）。
+ * 候选目录序：①node 可执行体同目录（官方安装器布局，npm/npx 随 node 落位）；
+ * ②`npm_config_prefix`（npm 生命周期注入的全局 prefix）；③`%APPDATA%\npm`
+ * （npm 默认用户级全局 prefix）；④PATH 序内置遍历。全不命中返回 undefined。
+ */
+function findWin32ShimAbsolute(base: string): string | undefined {
+  const dirs: string[] = [];
+  const execDir = dirname(process.execPath);
+  if (execDir !== '' && execDir !== '.') dirs.push(execDir);
+  const npmPrefix = process.env.npm_config_prefix;
+  if (typeof npmPrefix === 'string' && npmPrefix.trim() !== '') dirs.push(npmPrefix.trim());
+  const appData = process.env.APPDATA;
+  if (typeof appData === 'string' && appData.trim() !== '') dirs.push(join(appData, 'npm'));
+  // PATH 键形多态：标准 Windows 进程为 `Path`，Git Bash/MSYS 为 `PATH`
+  // （node 的 process.env 在 win32 大小写敏感，同 SystemRoot 族问题）。
+  const pathVar = process.env.Path ?? process.env.PATH ?? process.env.path;
+  if (typeof pathVar === 'string') {
+    for (const dir of pathVar.split(';')) {
+      const trimmed = dir.trim();
+      if (trimmed !== '') dirs.push(trimmed);
+    }
+  }
+  for (const dir of dirs) {
+    try {
+      const candidate = join(dir, `${base}.cmd`);
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // 单候选目录故障（非法路径形等）不影响其余候选——继续扫描
+    }
+  }
+  return undefined;
+}
+
+/**
+ * stdio command 解析入口。非 win32 原样返回（execvp 不搜 CWD，D1b FB9 定性
+ * 残留面仅 win32）；win32 已知 shim 走绝对化（见 {@link findWin32ShimAbsolute}），
+ * 解析不到抛 transport 错误 fail-closed；未知名原样透传。
  */
 export function resolveStdioCommand(command: string): string {
   if (process.platform !== 'win32') return command;
-  const knownShim = /^(npx|npm|pnpm|yarn|bunx|uvx|uv)$/i.test(command.trim());
-  return knownShim ? `${command.trim()}.cmd` : command;
+  const trimmed = command.trim();
+  if (!KNOWN_WIN32_SHIM_RE.test(trimmed)) return command;
+  const absolute = findWin32ShimAbsolute(trimmed);
+  if (absolute === undefined) {
+    throw engineError(
+      'transport',
+      `win32 shim '${trimmed}' cannot be resolved to an absolute path`,
+      {
+        detail: MCP_ERROR_KEYS.connectFailed,
+      },
+    );
+  }
+  return absolute;
 }
 
 /** 由 entry 构建冻结描述符：tier='mcp'、kind='search'、零凭据画像。 */

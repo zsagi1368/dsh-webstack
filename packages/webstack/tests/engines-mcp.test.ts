@@ -3,6 +3,7 @@
  * 结构性锁定保证、SDK 假体注入的引擎行为面（工具选择/解析/取消双保险）、
  * 纯函数解析器与 i18n 分册奇偶一致性。
  */
+import { isAbsolute } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   MCP_ERROR_KEYS,
@@ -489,9 +490,15 @@ describe('pickMcpSearchTool / resolveStdioCommand / 解析器', () => {
     ).toBeUndefined();
   });
 
-  it('resolveStdioCommand：win32 对已知壳脚本补 .cmd；其余原样', () => {
-    const isWin = process.platform === 'win32';
-    expect(resolveStdioCommand('npx')).toBe(isWin ? 'npx.cmd' : 'npx');
+  it('resolveStdioCommand：win32 已知壳脚本解析为绝对路径（WS1-FB9，裸名形必红）；其余原样', () => {
+    if (process.platform === 'win32') {
+      const resolved = resolveStdioCommand('npx');
+      expect(isAbsolute(resolved)).toBe(true);
+      expect(resolved.toLowerCase().endsWith('npx.cmd')).toBe(true);
+      expect(resolved).not.toBe('npx.cmd'); // FB9 修前旧形（裸名补 .cmd）不得再现
+    } else {
+      expect(resolveStdioCommand('npx')).toBe('npx'); // 非 win32 原样透传
+    }
     expect(resolveStdioCommand('C:\\tools\\myserver.exe')).toBe('C:\\tools\\myserver.exe');
   });
 
