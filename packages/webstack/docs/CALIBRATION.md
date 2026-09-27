@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | N1 | registry = npmmirror（内网镜像源） | 安装/CI 全部走镜像；`pnpm publish` 前需确认目标 registry，避免把 rc 包发到错误源 |
 | N2 | peer 策略：`>=0.1.0-rc.2 <0.2.0` | 六个 `@deepseek-ai/*` 平台包统一区间；rc 期内 API 仍可能破坏性演进，故封顶 `<0.2.0` 而非 `^` |
-| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.2-rc.1`），绝不写 `^`/`>=` |
-| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.2-rc.1`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
+| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.5-rc.2`），绝不写 `^`/`>=` |
+| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.5-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
 
 ## 2. 平台（宿主）API 事实
 
@@ -50,7 +50,7 @@
    不可复现的快照。
 3. 本仓的解法是「一处覆写、全组织生效」：仓库根 `pnpm-workspace.yaml` 的
    `overrides` 把全部 `@deepseek-ai/*` 条目整体钉到同一基线快照（当前
-   `0.1.2-rc.1`）。overrides 的优先级高于任何 manifest 内的 semver 表达
+   `0.1.5-rc.2`）。overrides 的优先级高于任何 manifest 内的 semver 表达
    （含 devDependencies 的精确钉），peer 自动安装一次到位。
 4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.2.0`）是本包**对外承诺的
    兼容窗口**；overrides 基线是**开发与测试实际对齐的确定快照**。不变式：
@@ -122,5 +122,53 @@ next = 0.1.2-rc.1）。
 
 **措辞纪律**：当前状态表述为「对齐 `0.1.2-rc.1` 基线 + 已对本地主仓
 `0.1.3-alpha.1` 完成一次性 typecheck 验证」；在官方 0.1.3 发布并完成基线
-切换之前，**禁写「已适配 0.1.3」**。
+切换之前，**禁写「已适配 0.1.3」**。（已被 §6 取代：基线现为 `0.1.5-rc.2`）
+
+## 6. 基线 0.1.5-rc.2 切换记录（2026-09-27，任务卡 D4）
+
+**承诺态**：`pnpm-workspace.yaml` 216 条 overrides（原 213 条整体替换
+`0.1.2-rc.1` → `0.1.5-rc.2`，另新增 3 条：`dsh-deque`、`dsh-util-crypto`、
+`dsh-util-values`——建图后新增的上游包，条目缺失致图内 `^0.1.5-rc.2` 规格
+自然漂移到 `0.1.5-rc.3`，而 rc.3 世代 exact peer cordis `"4.0.2"`；补盲后
+全图纯 0.1.5-rc.2）+ webstack devDeps 18 条精确钉同步替换；ci.yml
+upgrade-smoke sed 锚点同步替换。peer 区间 N2 不变（semver 实测
+`0.1.5-rc.2` ∈ `>=0.1.0-rc.2 <0.2.0`）。registry 实测（2026-09-27）：
+next tag = `0.1.7-rc.2`（已领先本切换目标；哨兵继续盯 next，下次切换前
+仍须按 §5 哨兵盲区纪律人工核对 versions）。
+
+**伴随断点修复（均属切换适配面，逐条证据）**：
+
+1. cordis devDeps（webstack/bridge/verticals 三包）`^4.0.1` → `^4.0.2`：
+   宿主 0.1.5-rc.2 全集 peer cordis `^4.0.2`（dsh-web@0.1.5-rc.2 manifest
+   实测）；收敛后全图单一身份 4.0.4。对外 peerDependencies `^4.0.1` 未动
+   （契约面变更超出 D4 授权，且更宽区间与图内解析无冲突）。
+2. webstack dependencies schemastery `^3.18.1` → `^3.18.2`：
+   dsh-settings@0.1.5-rc.2 peers `^3.18.2`；修复前图内出现 3.18.1/3.18.2
+   双身份（§5 已预警增广分裂风险），收敛后单一身份 3.18.2（= §5 主仓
+   vendored 版本）。
+3. webstack devDeps 补钉 `@deepseek-ai/dsh-client-file-upload@0.1.5-rc.2`
+   （§5 未来切换说明第 3 条落地）：ui-conversation@0.1.5-rc.2
+   `lib/types/client/contract/slots.d.ts:5` 仍 import
+   `dsh-client-file-upload/client`，而该包仍只在其 devDependencies
+   （dependencies ABSENT，manifest 实测）→ 上游打包缺陷在 0.1.5 世代仍在。
+4. webstack devDeps 补 `zustand@~4.4.7` + `immer@^10.1.1`（新断点，
+   specifier 镜像上游 devDeps）：dsh-client-store@0.1.5-rc.2 `lib/index.js`
+   运行时裸 import `zustand/vanilla|middleware|shallow` 与 `immer`，而其
+   manifest `dependencies: null`——同类上游打包缺陷；不补钉则
+   tests/client-w6.test.ts 以 ERR_MODULE_NOT_FOUND 必挂。
+
+**回归（真实运行输出）**：`pnpm install --no-frozen-lockfile` EXIT=0；
+`pnpm peers check` = No peer dependency issues found；`pnpm run typecheck`
+EXIT=0（三包）；`pnpm run test` EXIT=0——64 文件 / 928 测试全绿
+（webstack 841 + bridge 56 + verticals 31，与批次 4 全谱口径一致）；
+`pnpm run build` EXIT=0（webstack lib 4 文件 + client.js；index.d.ts 唯一
+DIFF 为 1 行注释 = types.ts 镜像注记传导，index.js 零 DIFF）；
+`pnpm run lint` EXIT=0（biome 152 文件零 fixes）。lockfile 断言：
+0×`0.1.2-rc.1`、0×`0.1.5-rc.3`。
+
+**措辞纪律（取代 §5 末段）**：当前状态表述为「对齐 `0.1.5-rc.2` 基线」；
+在完成向下一世代（0.1.7-rc.x 或 stable）的切换之前，**禁写「已适配
+0.1.7」**。§5 未来切换说明第 1-2 条已按本节执行（实际目标版本为
+0.1.5-rc.2 而非 0.1.3），第 3 条已实证并补钉；§5 历史验证记录按日期
+事实原样保留（其中 `0.1.2-rc.1` 字样为历史记录，不属 pin 残留）。
 
