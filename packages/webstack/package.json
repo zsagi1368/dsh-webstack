@@ -112,7 +112,7 @@
     "check": "pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/cordis": "^4.0.2",
     "@deepseek-ai/dsh-web": ">=0.1.0-rc.2 <0.2.0",
     "@deepseek-ai/dsh-settings": ">=0.1.0-rc.2 <0.2.0",
     "@deepseek-ai/dsh-tools": ">=0.1.0-rc.2 <0.2.0",

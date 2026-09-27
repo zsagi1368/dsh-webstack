@@ -141,7 +141,8 @@ next tag = `0.1.7-rc.2`（已领先本切换目标；哨兵继续盯 next，下�
 1. cordis devDeps（webstack/bridge/verticals 三包）`^4.0.1` → `^4.0.2`：
    宿主 0.1.5-rc.2 全集 peer cordis `^4.0.2`（dsh-web@0.1.5-rc.2 manifest
    实测）；收敛后全图单一身份 4.0.4。对外 peerDependencies `^4.0.1` 未动
-   （契约面变更超出 D4 授权，且更宽区间与图内解析无冲突）。
+   （契约面变更超出 D4 授权，且更宽区间与图内解析无冲突）。（已由 WS-FIX
+   卡收紧为 `^4.0.2`：见 §7）
 2. webstack dependencies schemastery `^3.18.1` → `^3.18.2`：
    dsh-settings@0.1.5-rc.2 peers `^3.18.2`；修复前图内出现 3.18.1/3.18.2
    双身份（§5 已预警增广分裂风险），收敛后单一身份 3.18.2（= §5 主仓
@@ -171,4 +172,36 @@ DIFF 为 1 行注释 = types.ts 镜像注记传导，index.js 零 DIFF）；
 0.1.7」**。§5 未来切换说明第 1-2 条已按本节执行（实际目标版本为
 0.1.5-rc.2 而非 0.1.3），第 3 条已实证并补钉；§5 历史验证记录按日期
 事实原样保留（其中 `0.1.2-rc.1` 字样为历史记录，不属 pin 残留）。
+
+## 7. cordis 对外 peer 收紧记录（2026-09-27，任务卡 WS-FIX）
+
+**承诺态**：三包（webstack/bridge/verticals）`peerDependencies` 的
+`@deepseek-ai/cordis` `^4.0.1` → `^4.0.2`（webstack package.json L115 /
+bridge L95 / verticals L94）；devDeps 在 §6 时已是 `^4.0.2`，本次未动；
+`peerDependenciesMeta` 与其余平台包 peer 区间（N2）零改动。lockfile 零
+漂移——pnpm importers 不记录 peer 规格，git diff 申报面仅 3 份 manifest
++ 本文档。
+
+**依据**：§6 伴随断点修复第 1 条的遗留项落地（D4 时「契约面变更超出卡
+授权」未动，现用户全权授权）——宿主 0.1.5-rc.2 全集 peer cordis
+`^4.0.2`（dsh-web@0.1.5-rc.2 manifest 实测），lockfile cordis 单一身份
+4.0.4（98 处引用、0×4.0.1），收紧后区间与图内解析一致。
+
+**回归（真实运行输出）**：`pnpm install` EXIT=0（Already up to date，无
+peer 冲突）、`pnpm install --frozen-lockfile` EXIT=0、`pnpm peers check`
+= No peer dependency issues found；`pnpm run typecheck` EXIT=0（三包）；
+`pnpm run test` EXIT=0——64 文件 / 928 测试全绿（webstack 841 + bridge
+56 + verticals 31，与 §6 口径一致）；`pnpm run lint` EXIT=0（biome 152
+文件零 fixes）。
+
+**.pnpm 残留定性（D4 遗留4 收口）**：node_modules/.pnpm 内无引用旧目录
+实测共 8 枚——`0.1.2-rc.1` 3 枚（brand/deque/llm，带 cordis@4.0.1 后缀，
+即 D4 记录之 3 枚）+ 同性质 5 枚（cordis@4.0.1 本体、brand@0.1.5-rc.2
+与 llm@0.1.5-rc.2 各带 4.0.1 后缀、deque@0.1.5-rc.3 带 4.0.1/4.0.4 后缀
+各一）。`pnpm install`、`pnpm prune`、`pnpm install --force`（pnpm
+11.17.0）均短路 Already up to date，不重建虚拟存储 → 未自清；lockfile
+引用全 0（0×`0.1.2-rc.1`、0×`0.1.5-rc.3`、0×`cordis@4.0.1`），活跃身份
+齐全（brand/deque/llm@0.1.5-rc.2 带 4.0.4 后缀 + cordis@4.0.4），无功能
+影响。定性为惰性残留、不强删；下次 node_modules 全量重建（如按 §4 基线
+切换）时自然消失。
 
