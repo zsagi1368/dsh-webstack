@@ -284,11 +284,14 @@ describe('W6 面④ · dsh.client 段三 inject 声明核验（治理段入库�
     expect(clientHalf.inject).toEqual(['slots', 'locale']); // cordis 必需服务声明（软依赖不入清单）
     // 对照差实测登记（只读核验不判不改，回执偏差清单同步）：运行期 external 面
     // 另有 dsh-client-store（neverBundle=true 全 external，宿主模块系统供给，
-    // tsdown.client.config.ts 注释）与 renderer/settings/conversation 的 type-only
+    // tsdown.client.config.ts 注释）与 renderer/conversation 的 type-only（settings 消费 0.1.7-rc.2 起随官方类型删除而终止，下方负锁在案）
     // 子路径消费——三声明是宿主注入清单非 external 全集，差额归主线 loader 面（U-1）。
     expect(consumed.has('@deepseek-ai/dsh-client-store')).toBe(true); // 运行期消费实测在案
     expect(consumed.has('@deepseek-ai/dsh-client-ui-renderer')).toBe(true); // type-only 消费实测在案
-    expect(consumed.has('@deepseek-ai/dsh-client-ui-settings')).toBe(true); // type-only 消费实测在案
+    // 0.1.7-rc.2 事实登记轮转：ui-settings/client 的 SettingsScope 类型被官方删除
+    // （settings-mirror 重构），src/client/index.ts 改本地结构接口承接——type-only
+    // 消费终止。负锁防漂移：未来重接消费时本登记必须同步翻转。
+    expect(consumed.has('@deepseek-ai/dsh-client-ui-settings')).toBe(false); // type-only 消费实测在案
   });
 });
 

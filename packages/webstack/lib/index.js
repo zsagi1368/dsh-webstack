@@ -5190,7 +5190,9 @@ function assembleWebstack(ctx, config = {}) {
 	let source = () => ({ ...config });
 	let refreshStatusSection = () => {};
 	ctx.inject(["settings"], (settingsCtx) => {
-		const scope = settingsCtx.settings.register(SETTINGS_NS, Config);
+		const forms = settingsCtx.settings;
+		if (typeof forms.register !== "function") return;
+		const scope = forms.register(SETTINGS_NS, Config);
 		source = () => scope.get();
 		scope.watch(() => {
 			rewriteInPlace(config, source());

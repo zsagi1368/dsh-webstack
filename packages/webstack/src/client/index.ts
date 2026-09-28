@@ -24,9 +24,6 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 // 类型-only：ctx.slots 注册表类型由 ui-renderer 提供（alpha.4 起）。
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
-// 类型-only：alpha.4 起 client 侧快照式 SettingsScope 契约由 ui-settings 提供
-// （原 dsh-client-runtime/client 导出，包删除后迁移至此；getSnapshot/subscribe/set 面不变）。
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type {} from '@deepseek-ai/dsh-client-ui-slots';
 import type { SearchLayer, SessionOnlineMode } from '../kernel/types.ts';
 import { DEFAULT_SETTINGS } from '../settings/schema.ts';
@@ -42,6 +39,20 @@ import {
 import { OnlineModeToggle } from './input-toggle.tsx';
 import { CARD_NS, cardEn, cardZh, TOGGLE_NS, toggleEn, toggleZh } from './locale.ts';
 import { type CardViewState, WebstackSettingsCard } from './settings-card.tsx';
+
+// 0.1.7-rc.2：ui-settings/client 不再导出 SettingsScope 类型（官方 settings-mirror
+// 重构）；契约面（getSnapshot/subscribe/set）以本地结构接口承接——运行时本就是
+// 结构探测（peekScopeBinder），消费面不变，类型面与宿主解耦。
+interface SettingsScopeSnapshot<T> {
+  value: T;
+  writable: boolean;
+  status: 'loading' | 'ready' | 'unavailable';
+}
+interface SettingsScope<T extends Record<string, unknown>> {
+  getSnapshot(): SettingsScopeSnapshot<T>;
+  subscribe(listener: () => void): () => void;
+  set(field: string, value: unknown): Promise<void> | void;
+}
 
 /** 必需服务：槽注册表与字典服务。settingsScope 为软依赖（缺席降级），不入清单。 */
 export const inject = ['slots', 'locale'];
@@ -245,6 +256,6 @@ export function apply(ctx: ClientContext): void {
   );
 }
 
-// SettingsScope 契约面（getSnapshot/subscribe/set）由 dsh-client-runtime/client
-// 导出，syncFromScope/save 即按其语义实现。
+// SettingsScope 契约面（getSnapshot/subscribe/set）由本文件顶部本地结构接口承接
+// （0.1.7 起 ui-settings/client 不再导出该类型）；syncFromScope/save 即按其语义实现。
 export type { DraftState };

@@ -503,10 +503,21 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
   // alpha.4：installSettingsSection/settingsNamespace 已删除，改用
   // ctx.inject(['settings']) + settings.register()。服务缺席时回调不执行，
   // 回落组合入口配置——能力缺失降级而非报错（与旧语义一致）。
+  // 0.1.7-rc.2：SettingsForms 删除 register（改 describe/update/replace/mutate
+  // 面，无 watch 面）；探测到 register 缺席时走同一降级腿（组合入口配置回落，
+  // 与「服务缺席」语义一致）。热生效在 0.1.7 新面的重接属架构级决策——遗留
+  // 上报主线，不自创（SYNC-P4 破坏面适配纪律）。
   let source: () => PluginConfig = () => ({ ...config });
   let refreshStatusSection: () => void = () => {};
   ctx.inject(['settings'], (settingsCtx) => {
-    const scope = settingsCtx.settings.register(SETTINGS_NS, Config);
+    const forms = settingsCtx.settings as unknown as {
+      register?: (
+        ns: string,
+        schema: unknown,
+      ) => { get(): unknown; watch(cb: () => void): unknown };
+    };
+    if (typeof forms.register !== 'function') return;
+    const scope = forms.register(SETTINGS_NS, Config);
     source = () => scope.get() as PluginConfig;
     // 热生效：设置文档是唯一事实源，watcher 与 settings 服务同生命周期。
     scope.watch(() => {
