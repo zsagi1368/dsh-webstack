@@ -8,9 +8,9 @@
 | # | 事实 | 依据与后果 |
 | --- | --- | --- |
 | N1 | registry = npmmirror（内网镜像源） | 安装/CI 全部走镜像；`pnpm publish` 前需确认目标 registry，避免把 rc 包发到错误源 |
-| N2 | peer 策略：`>=0.1.0-rc.2 <0.2.0` | 六个 `@deepseek-ai/*` 平台包统一区间；rc 期内 API 仍可能破坏性演进，故封顶 `<0.2.0` 而非 `^` |
-| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.7-rc.2`），绝不写 `^`/`>=` |
-| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.7-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
+| N2 | peer 策略：`>=0.1.0-rc.2 <0.3.0` | 五个 `@deepseek-ai/dsh-*` 平台包统一区间（cordis 另为 `^4.0.2`，不受该区间管辖）；封顶 `<0.3.0` 而非 caret 形——0.2.0 起宿主新增 peer 版本闸门，**caret 钉到 0.2.0 的写法**（等价展开 `>=0.2.0 <0.3.0`；本仓纪律要求该字面 0 命中，故此处一律以展开形书写）在 `0.2.0-rc.2` 下判 **false**，会当场静默禁用装件（semver 7.8.5 实测，sync-020/P4b，真值表见 §9） |
+| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.2.0-rc.2`），绝不写 `^`/`>=` |
+| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.2.0-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
 
 ## 2. 平台（宿主）API 事实
 
@@ -50,9 +50,10 @@
    不可复现的快照。
 3. 本仓的解法是「一处覆写、全组织生效」：仓库根 `pnpm-workspace.yaml` 的
    `overrides` 把全部 `@deepseek-ai/*` 条目整体钉到同一基线快照（当前
-   `0.1.7-rc.2`）。overrides 的优先级高于任何 manifest 内的 semver 表达
+   `0.2.0-rc.2`，**恰 204 条**——sync-020/P4b 清偿了 12 条跨轮累积的死条目，
+   证据见 §9）。overrides 的优先级高于任何 manifest 内的 semver 表达
    （含 devDependencies 的精确钉），peer 自动安装一次到位。
-4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.2.0`）是本包**对外承诺的
+4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.3.0`）是本包**对外承诺的
    兼容窗口**；overrides 基线是**开发与测试实际对齐的确定快照**。不变式：
    基线 ∈ 区间。升级时两者同步推进，禁止只改一边。
 
@@ -254,5 +255,172 @@ prebuilt lib 同帧重建：唯一 diff = packages/webstack/lib/index.js
 **措辞纪律（取代 §6 措辞纪律段）**：当前状态表述为「对齐 `0.1.7-rc.2`
 基线」；在完成向下一世代（0.1.8-rc.x / 0.2.0 或 stable）的切换之前，
 **禁写「已适配 0.1.8/0.2.0」**。§6 措辞纪律段原文保留、句末已按惯例补
-「已被 §8 取代」注记。
+「已被 §8 取代」注记。（已被 §9 取代：基线现为 `0.2.0-rc.2`，现状表述见
+§9 措辞纪律段；本节其余内容为 2026-09-29 帧的历史事实，按纪律原样保留。）
+
+## 9. 基线 0.2.0-rc.2 切换记录（2026-09-30，sync-020 / SYNC-P4b）
+
+**承诺态（六处，计数全部程序化复核，禁肉眼）**：
+
+1. `pnpm-workspace.yaml` overrides：**204 条活条目**整体替换 `0.1.7-rc.2` →
+   `0.2.0-rc.2` + **删除 12 条死条目**（清单与逐条证据见下）+ 基线注释 1 处
+   随动 + 新增 7 行清偿说明注释。轮转后 pyyaml 实测：`overrides` **恰 204 条**、
+   值直方图 `{'0.2.0-rc.2': 204}`（**单一值**）、无重名、`packages`/`autoInstallPeers`
+   两键完好、cordis 与 schemastery **本体不在表内**（表内 4 个含 cordis 字样者
+   均为 `dsh-*-cordis*` 包）。文件仍为 LF、无 BOM、尾行换行保留。
+2. `packages/webstack/package.json`：devDeps **19 条**精确钉同步替换
+   （**裸形保持裸形，未补 `=`**：改后 `"=0.2.0-rc.2"` 命中 0）；
+   **peerDependencies 5 条放宽** `>=0.1.0-rc.2 <0.2.0` → `>=0.1.0-rc.2 <0.3.0`
+   （dsh-web / dsh-settings / dsh-tools / dsh-credentials / dsh-llm）。
+   `dsh.compatible` **未动**（仍 `>=0.1.5-rc.2 <0.2.0`；该字段权属在工厂侧，
+   且 Workbench 有测试把它钉为 factory-set form，另卡处置）。
+3. `packages/bridge`、`packages/verticals`：**零改动**（实测二者仅
+   `@deepseek-ai/cordis ^4.0.2` devD+peer，无 `dsh-*` 版本 pin）。
+4. `ci.yml` upgrade-smoke：转义 sed 锚点 `0\.1\.7-rc\.2` → `0\.2\.0-rc\.2`
+   + :64 注释 1 处，共 2 处（锚点属轮转面——锚点陈旧 = 哨兵静默失效 = 假绿，
+   §8 与 D4 bfe2907 先例）。
+5. `GOTCHAS.md` G3：示例版本与 peer 区间两个字面随动（该句因 N2 放宽而失真）。
+6. 本文件：N2/N3/N4 与 §4 第 3-4 条的**现状字面**更正；§5/§6/§7/§8 的
+   **历史事实一律原样保留**，仅按惯例在 §8 措辞纪律段句末补「已被 §9 取代」注记。
+
+**12 条死条目清偿（逐条双侧证死，非沿袭上一轮的 216 条全轮）**：
+
+| 包（去 scope 短名） | 官方 0.1.7-rc.2 树 | 官方 0.2.0-rc.2 树 | npm `0.1.7-rc.2` | npm `0.2.0-rc.2` | `dist-tags.latest` |
+|---|---|---|---|---|---|
+| dsh-acp-demo | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-agent-presets | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-agent-spine-demo | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-code-runtime | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-code-runtime-worker-thread | ABSENT | ABSENT | NO | NO | 0.0.1-rc.3 |
+| dsh-e2b | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-host-apiproxy | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-sdk-jsonrpc-demo | ABSENT | ABSENT | NO | NO | 0.0.1-rc.5 |
+| dsh-session-persistence-sqlite | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-settings-file | ABSENT | ABSENT | NO | NO | 0.0.1-rc.3 |
+| dsh-tool-subagent-report | ABSENT | ABSENT | NO | NO | 0.0.1-rc.1 |
+| dsh-workflow-worker-thread | ABSENT | ABSENT | NO | NO | 0.0.1-rc.3 |
+
+- 树侧方法：`git ls-tree -r --name-only <ref>` 全量 `package.json` 逐个 `git show`
+  读 `name` 建 name→dir 反查表（base 350 件 / 348 具名，target 354 件 / 352 具名；
+  只数 `packages/` 则为 321 → 325）。12 条在**两棵树里都不存在** ⇒ 不是 0.2.0 新删，
+  而是**上一轮之前就已死**的跨轮累积噪声（其中 `dsh-code-runtime`、`dsh-e2b`
+  正是 sync-017 记录的官方真删 2 包）。
+- npm 侧**阳性对照**（防假阴性，同命令形式）：dsh-web / dsh-llm / dsh-tools /
+  dsh-invariants / dsh-client-ui-conversation / dsh-client-ui-renderer /
+  dsh-host-webserver —— **7/7 对 `0.1.7-rc.2` 与 `0.2.0-rc.2` 双双 YES** ⇒
+  上表 12 条的 NO 为真阴性。
+- **删除的可证安全性（演绎，非经验）**：这 12 条的**原值 `0.1.7-rc.2` 本身就是
+  npm 上不存在的版本**，而 install 一直成功 ⇒ 这些包**根本不在依赖图内**
+  （否则解析到不存在的版本必然失败）⇒ 删掉该 override 对解析结果**零影响**。
+  反向选择（轮转到 `0.2.0-rc.2`）等于**再写一个明知不存在的值**，会误导读者
+  以为该包在 rc.2 存在；留旧值则同样是假值且造成表内两种版本并存、更难审。
+- **计数口径变更**：overrides 面从「216 条」变为「**204 条**」。§8 记载的
+  「217×`0.1.7-rc.2` = 216 overrides + 1 基线注释」是当帧事实，原样保留。
+
+**peer 放宽的 semver 真值模拟（semver **7.8.5**，即本仓实际解析到的
+`node_modules/.pnpm/semver@7.8.5`，与官方 app-boot 依赖同版；闸门同款
+`{includePrerelease:true}`）**：
+
+| runtime | 旧值 `>=0.1.0-rc.2 <0.2.0` | **新值 `>=0.1.0-rc.2 <0.3.0`** | `>=0.2.0 <0.3.0`（＝caret 钉到 0.2.0 的展开形，**错误修法**） |
+|---|---|---|---|
+| **`0.2.0-rc.2`（本轮）** | true | **true** | **false ← 会当场静默禁用装件** |
+| `0.2.0`（正式版） | **false ← 定时雷** | **true** | true |
+| `0.2.1` | false | **true** | true |
+| `0.3.0` | false | **false（正确失效点）** | false |
+| `0.1.7-rc.2`（旧基线） | true | true | false |
+
+⇒ 新值是**唯一同时满足「本轮不坏」与「正式版不坏」**的形；caret 钉到 0.2.0 的写法
+（展开形 `>=0.2.0 <0.3.0`，见上表第 3 列）在 `0.2.0-rc.2` 下判 false，**严禁采用**。排序事实实测：`lt('0.2.0-rc.2','0.2.0')=true`、
+`gt('0.2.0-rc.2','0.1.7-rc.2')=true`、`lt('0.2.0-rc.2','0.3.0')=true`。
+去掉 `includePrerelease` 后 rc.2 对新旧区间**均判 false** ⇒ 该 flag 是承重墙。
+
+**19 个 devDep 包的官方 `src/` 子树 OID 对账（base vs target，dir 由 name 反查）**：
+**15 IDENTICAL / 4 DIFFERS**。
+
+- IDENTICAL（15）：dsh-client-locale `5a914588cf`、dsh-client-store `8a34b370b7`、
+  dsh-client-ui-input-trigger `526e8daf9a`、dsh-client-ui-settings `23bc880ed2`、
+  dsh-client-ui-slots `cce09249d6`、dsh-attachment `d10adf40bf`、dsh-agent `8fbb7ac176`、
+  dsh-typert-protocol `708775ffc3`、dsh-client-file-upload `cc257b6c7a`、
+  dsh-invariants `1dbf691207`、dsh-llm `fabaf75e13`、dsh-settings `bd2a95c789`、
+  dsh-tools `234fb99ccd`、dsh-credentials `4a2301cc40`、dsh-web `87d65578fe`。
+- DIFFERS（4），逐个查导出面（`git diff base target -- <dir>/src`）：
+  | 包 | `-export` | `+export` | 定性 |
+  |---|---|---|---|
+  | dsh-client-ui-renderer | **0** | 0 | 唯一改动＝`src/client/scoped-slots.tsx` 1 行：`nextAncestors` 上移并包进 `useMemo`（React hooks 顺序修正），**无 API 变化** |
+  | dsh-client-ui-conversation | **0** | 3 | src 内 12 文件 +129/−32，新增 `MessageSubmissionState`/`MessageSubmission`/`reportMessageSubmission`，**零删除** |
+  | dsh-api-remotes | **0** | 2 | `src/client/index.ts` +7/−2，新增两条 `export type {}` 空类型再导出，**零删除** |
+  | dsh-session | **1** | 2 | 见下专项 |
+- **dsh-session 专项（`-export`=1 的逐字定性）**：`src/index.ts` 全文件 diff **恰 1 行**，
+  且为**严格增量**——
+  `-export { interruptedTurnClosers, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'`
+  `+export { interruptedTurnClosers, ToolCallRecovery, TOOL_NOT_STARTED, TOOL_OUTCOME_UNKNOWN } from './repair.ts'`
+  原三个名字**全部保留**，只**新增** `ToolCallRecovery`；index.ts 其余 16 条 export 行
+  （:27-31、:33-36、:171、:200、:446、:895、:904、:911、:925、:1327、:1328）逐行字节相同。
+  `repair.ts` 虽 +114/−80（重构抽出 `ToolCallRecovery` 类），但三个被再导出符号的
+  **声明签名逐字相同**：`TOOL_NOT_STARTED`/`TOOL_OUTCOME_UNKNOWN` 仍为同值 const、
+  `interruptedTurnClosers(events: readonly SessionEvent[]): SessionEvent[]` 签名不变、
+  `openTurnClosers(events, cause)` 与 `OpenTurnCloseCause` 不变。
+  ⇒ **导出面零删除、一项新增**；`-export` 命中来自「一条 export 语句被改写」而非「导出被移除」。
+  另实测 **WebStack 全仓对 `dsh-session` 的引用只有 `packages/webstack/package.json:155`
+  这一条 devDep 声明，src/tests 内零 import** ⇒ 该包即使有破坏面也影响不到本仓编译与运行。
+
+**回归（真实运行输出，本帧）**：
+
+- `pnpm install` EXIT=0（pnpm 11.17.0，Scope: all 4 workspace projects，+37/−37 包）；
+  lock 再解析 **445×`0.2.0-rc.2` / 0×`0.1.7-rc.2`**（基线为 457×旧 / 0×新）；
+  lock 头部 `overrides` 段 = **204 条、值单一 `0.2.0-rc.2`**（与 workspace 文件一致）。
+- **结果判据（overrides 表充分性证明）**：程序化提取 lock 内全部
+  `@deepseek-ai/dsh-*` 解析身份 → **distinct 84 个，非 `0.2.0-rc.2` 者 0 个**。
+  ⇒ **无需增补 rc.2 新增包**；反证：`dsh-config-editor`、`dsh-package-manifest`、
+  `dsh-ptc-runtime` 三个 rc.2 新包**不在 override 表内**却同样解析到 `0.2.0-rc.2`。
+- **cordis 家族零漂移**（改前/改后 lock 版本集合逐一相同）：cordis `4.0.4`、
+  schemastery `3.18.2`+`3.18.4`、cosmokit `1.8.5`、cordis-plugin-loader `1.0.5`、
+  cordis-plugin-include `1.0.9`、cordis-plugin-group `1.0.4`。
+- **install 后实测落位版本（禁采信 exit 0）**：19 条 devDep 从
+  `packages/webstack/node_modules/<pkg>/package.json` 逐个读 `version` →
+  **19/19 = `0.2.0-rc.2`，mismatches NONE**（含 5 个 peer 放宽对象）。
+  注：本仓为 monorepo，devDeps 链接在 `packages/webstack/node_modules` 下，
+  在仓根读会全部 MISS（属读取路径错误，非落位失败）。
+- `pnpm install --frozen-lockfile` EXIT=0：「Lockfile is up to date, resolution step
+  is skipped / Already up to date / ✓ passes supply-chain policies (299 entries)」，
+  lock 与 workspace 两文件 md5 **前后同值** ⇒ 零隐式回写。
+- lock 内 **git/tarball 依赖 0 条** ⇒ pnpm 11.7.0 `inheritedParentPkgBreaksPeerDiamond`
+  不适用，双工具 SOP 与判据三套无需启动（本机 pnpm 实测 11.17.0，与 `packageManager` 一致）。
+- `pnpm run typecheck` **EXIT=0（三包全绿）**——这是 P3 明确要求的**全仓 tsc 双保险**。
+- `pnpm run test` **EXIT=0，928/928 全绿**：webstack **841/57 文件** +
+  bridge **56/5 文件** + verticals **31/2 文件**；`failed`/`FAIL`/`✗`/`×` 命中均为 0。
+  与 §8 记载的上一轮 928/928（841/57 + 56/5 + 31/2）**逐数相同** ⇒ 无测试静默掉队。
+  include 模式核对：三包均为 `tests/**/*.test.ts(x)`，实测 `.test.ts(x)` 文件数
+  57/5/2 与 include 精确吻合；webstack 另有 **1 个 `.spec.ts`**
+  （`tests/tools-host-contract.spec.ts`）**被 config 显式排除**在默认 run 之外
+  （config 注释说明其经 `test:contract` 单独跑）⇒ 非 FileHub 那类 include 漏配假绿。
+- `pnpm run test:contract` **EXIT=0，8/8 全绿**（宿主契约结构断言，对着同级
+  zDSH-main 的 0.2.0-rc.2 合并树跑）。
+- `pnpm run build` **本轮未跑**：本次改动**零 `src/` 文件**（porcelain 可证），
+  prebuilt `lib/` 与源码仍同帧，不触发 §8 的「prebuilt 同帧重建」纪律。
+
+**工具生成面（pnpm 11.17.0 新行为，登记以免被误判为越界改动）**：install 时 pnpm
+自动往 `pnpm-workspace.yaml` 追加 **37 条 `minimumReleaseAgeExclude`**（`pkg@0.2.0-rc.2` 形），
+并提示 `set minimumReleaseAgeStrict to true to gate these updates with a prompt`。
+实测 `minimumReleaseAge` **主键在任何载体上都不存在**（仓内 `.npmrc`〔本仓无此文件〕/
+`pnpm-workspace.yaml` / 三个 `package.json`、`pnpm config get`、`npm config get`、
+`~/.npmrc`、`npm config get globalconfig` 指向的文件不存在、`pnpm config list` 全量），
+⇒ 该清单当前**惰性**；它的作用是防止当日发布的 rc.2 被供应链年龄策略静默降级。
+同批同现象已在 FileHub（新增 14 条）与 Workbench（就地加宽 3 条为
+`pkg@0.1.7-rc.2 || 0.2.0-rc.2`，条目数不变）复现。**未修改任何 pnpm 用户级/全局配置。**
+⇒ `pnpm-workspace.yaml` 属**预期改动面（工具生成）**，「改动面只在 package.json + lock」
+这条旧判据在 11.17.0 下天然不成立。
+
+**惰性残留定性（沿用 §5 末段先例，不强删）**：`.pnpm` 虚拟存储内仍有 112 个
+`0.1.7-rc.2` 目录（37 个唯一包名，与上面 37 条 exclude 一一对应），但**再生后的 lock 内
+`0.1.7-rc.2` 命中为 0**、且 `packages/webstack/node_modules` 下 19/19 实测为 rc.2 ⇒
+残留属**未清理的孤儿目录、不在解析图内**，无功能影响。未执行 `pnpm store prune`
+（跨仓共享存储，动它属系统级状态变更）；下次 node_modules 全量重建时自然消失。
+
+**措辞纪律（取代 §8 措辞纪律段）**：当前状态表述为「对齐 `0.2.0-rc.2` 基线」；
+在完成向下一世代（0.2.0 正式版 / 0.2.1 / 0.3.0 或 stable）的切换之前，
+**禁写「已适配 0.2.0 正式版」**——本轮对齐的是 rc.2 字节面，peer 上界 `<0.3.0`
+对**未来 0.2.x** 的兼容性依赖 semver 线内约定，不是字节级证明（P3 诚实边界，
+本轮以全仓 tsc + 928/928 + 契约 8/8 作行为级双保险）。§8 措辞纪律段原文保留、
+句末已按惯例补「已被 §9 取代」注记。
 
