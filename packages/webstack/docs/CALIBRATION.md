@@ -9,8 +9,8 @@
 | --- | --- | --- |
 | N1 | registry = npmmirror（内网镜像源） | 安装/CI 全部走镜像；`pnpm publish` 前需确认目标 registry，避免把 rc 包发到错误源 |
 | N2 | peer 策略：`>=0.1.0-rc.2 <0.2.0` | 六个 `@deepseek-ai/*` 平台包统一区间；rc 期内 API 仍可能破坏性演进，故封顶 `<0.2.0` 而非 `^` |
-| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.5-rc.2`），绝不写 `^`/`>=` |
-| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.5-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
+| N3 | `@deepseek-ai/dsh-invariants` 只有 next tag 提供 rc 版本，无 stable 匹配 | peer 区间无法命中 → 只能进 devDependencies 并**精确钉住**（当前 `0.1.7-rc.2`），绝不写 `^`/`>=` |
+| N4 | 其余平台包在 devDeps 中同样钉精确版本（如 `@deepseek-ai/dsh-web 0.1.7-rc.2`） | 保证本地测试/类型断言针对的是与 peer 区间一致的确定快照 |
 
 ## 2. 平台（宿主）API 事实
 
@@ -50,7 +50,7 @@
    不可复现的快照。
 3. 本仓的解法是「一处覆写、全组织生效」：仓库根 `pnpm-workspace.yaml` 的
    `overrides` 把全部 `@deepseek-ai/*` 条目整体钉到同一基线快照（当前
-   `0.1.5-rc.2`）。overrides 的优先级高于任何 manifest 内的 semver 表达
+   `0.1.7-rc.2`）。overrides 的优先级高于任何 manifest 内的 semver 表达
    （含 devDependencies 的精确钉），peer 自动安装一次到位。
 4. 与 N2/N4 的关系：peer 区间（`>=0.1.0-rc.2 <0.2.0`）是本包**对外承诺的
    兼容窗口**；overrides 基线是**开发与测试实际对齐的确定快照**。不变式：
@@ -171,7 +171,7 @@ DIFF 为 1 行注释 = types.ts 镜像注记传导，index.js 零 DIFF）；
 在完成向下一世代（0.1.7-rc.x 或 stable）的切换之前，**禁写「已适配
 0.1.7」**。§5 未来切换说明第 1-2 条已按本节执行（实际目标版本为
 0.1.5-rc.2 而非 0.1.3），第 3 条已实证并补钉；§5 历史验证记录按日期
-事实原样保留（其中 `0.1.2-rc.1` 字样为历史记录，不属 pin 残留）。
+事实原样保留（其中 `0.1.2-rc.1` 字样为历史记录，不属 pin 残留）。（已被 §8 取代：基线现为 `0.1.7-rc.2`，现状表述见 §8 措辞纪律段）
 
 ## 7. cordis 对外 peer 收紧记录（2026-09-27，任务卡 WS-FIX）
 
@@ -204,4 +204,55 @@ peer 冲突）、`pnpm install --frozen-lockfile` EXIT=0、`pnpm peers check`
 齐全（brand/deque/llm@0.1.5-rc.2 带 4.0.4 后缀 + cordis@4.0.4），无功能
 影响。定性为惰性残留、不强删；下次 node_modules 全量重建（如按 §4 基线
 切换）时自然消失。
+
+## 8. 基线 0.1.7-rc.2 切换记录（2026-09-29，SYNC-P4）
+
+（本节为 289dab1 提交帧文书遗留之补记——P4 卡范围内未落，SYNC-017 波 B1
+真源卫生批兑现；事实全部取自该提交信息与当帧门禁输出，计数经本批程序化
+复核：pnpm-workspace.yaml 217×`0.1.7-rc.2` = 216 overrides + 1 基线注释、
+packages/webstack/package.json 19× 精确钉、ci.yml 2 处〔:64 注释 + :67
+转义 sed 锚点〕。）
+
+**承诺态**：`pnpm-workspace.yaml` 216 条 overrides 整体替换
+`0.1.5-rc.2` → `0.1.7-rc.2` + 基线注释 1 处（D4 先例：注释陈述当前基线）
++ packages/webstack devDeps 19 条精确钉同步替换 + ci.yml upgrade-smoke
+转义 sed 锚点与注释 2 处同步（锚点属轮转面——锚点陈旧=哨兵静默失效=
+假绿，D4 bfe2907 先例）。peer 区间 N2 不变；三包 compatible
+`>=0.1.5-rc.2 <0.2.0` 未动（semver 实测 `0.1.7-rc.2` 在区间内）。
+
+**#6082 补钉复核（保持）**：client-store/file-upload 补钉
+（file-upload@0.1.7-rc.2 的 npm dependencies 仍缺 client-store，当会话
+registry 复核）、zustand ~4.4.7、immer ^10.1.1；cordis `^4.0.2`
+（devDeps/peers，registry 单一身份 4.0.4 同时满足 ^4.0.2 与 0.1.7 宿主
+peer ~4.0.4，lock 验证）。
+
+**伴随断点修复（3 处，均属 0.1.5→0.1.7 破坏面适配）**：
+
+1. `src/client/index.ts`：官方 `SettingsScope` 类型不再由
+   ui-settings/client 导出（上游 settings-mirror 重构）→ 本地结构接口
+   承接同一 getSnapshot/subscribe/set 面；运行期本就是结构探测
+   （peekScopeBinder），消费面不变。
+2. `src/index.ts` settings seam：`SettingsForms.register` 在 0.1.7 移除
+   （新面 describe/update/replace/mutate，无 watch）→ fail-soft 结构
+   探测；register 缺席腿与服务缺席语义同款降级（回落组合入口配置）；
+   新面热生效重接线=架构级遗留，升级申报 DEBT-WS-HOTRELOAD（触发器制，
+   随 DEBT-SETTINGS-COVERAGE 清偿卡；配方见 P4-settings §3.4），
+   不自发明。
+3. `tests/client-w6.test.ts` face-4 事实注册表：ui-settings 类型-only
+   消费断言翻转为负锁（上游消费面已终结），漂移守卫语义保留，零测试
+   删除。
+
+**回归（真实运行输出，289dab1 帧）**：`pnpm install` EXIT=0（lock 再解析
+457×`0.1.7-rc.2` / 0×`0.1.5-rc.2`，cordis 单一身份 4.0.4）；
+`pnpm install --frozen-lockfile` EXIT=0；`pnpm run typecheck` EXIT=0
+（三包）；`pnpm run test` EXIT=0——928/928 全绿（webstack 841/57 文件 +
+bridge 56/5 文件 + verticals 31/2 文件）；`pnpm run build` EXIT=0，
+prebuilt lib 同帧重建：唯一 diff = packages/webstack/lib/index.js
+（+3/-1，探测载体），bridge/verticals lib 字节恒等。备份：仓根
+`del/20260929-034840-P4-WebStack`。
+
+**措辞纪律（取代 §6 措辞纪律段）**：当前状态表述为「对齐 `0.1.7-rc.2`
+基线」；在完成向下一世代（0.1.8-rc.x / 0.2.0 或 stable）的切换之前，
+**禁写「已适配 0.1.8/0.2.0」**。§6 措辞纪律段原文保留、句末已按惯例补
+「已被 §8 取代」注记。
 

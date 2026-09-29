@@ -557,7 +557,7 @@ export interface SeamSettingsRuntime {
 /**
  * 宿主 credentials 域单条解析产物（主线 ResolvedCredential 镜像：主仓
  * packages/credentials/credentials/src/index.ts:118-123 @9da7f7371d；
- * 0.1.5-rc.2 与现世代形状一致。R-4：插件旧约按裸 string 消费导致命中即
+ * 0.1.5/0.1.7-rc.2 两代形状一致（4e571c427c 复核）。R-4：插件旧约按裸 string 消费导致命中即
  * TypeError，解包归口 creds/resolve.ts unwrapResolvedCredential）。
  */
 export interface SeamResolvedCredential {

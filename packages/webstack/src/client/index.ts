@@ -12,7 +12,11 @@
  * 命名空间，快照驱动状态机，writable 时开放暂存编辑与写入；服务缺席或
  * 快照不可写 → 只读展示卡 / 本地态按钮。devDeps 未含 dsh-client-ui-settings
  * 系列（类型合并与服务的宿主面），因此这里不做该包的类型依赖，仅按
- * dsh-client-runtime 已导出的 SettingsScope 契约做结构探测。
+ * 本地结构接口做结构探测（0.1.7-rc.2 轮转注：官方 SettingsScope 类型已随
+ * 上游 settings-mirror 重构移出 ui-settings/client——SYNC-P4 断点修复1=
+ * 本地结构接口承接，见下文接口定义；0.1.7 后继面=SettingsDescribeMirror/
+ * configForms，P4-settings §1.3；热生效债指针 DEBT-WS-HOTRELOAD，
+ * P4-settings §3.3）。
  *
  * @module webstack/client
  */
