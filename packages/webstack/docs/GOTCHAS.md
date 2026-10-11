@@ -28,13 +28,16 @@ await fiber;                               // ② 自身插件 fiber 也要 awai
 漏掉 ② 时 `apply` 内的异步注册（settings 节安装等）尚未完成，断言会随机
 失败或读到空注册表。参见 tests/index-plugin.test.ts 的写法。
 
-## G3. dsh-invariants 没有 stable 版可匹配 peer 区间
+## G3. dsh-invariants 没有 stable 版可匹配 peer 区间（历史；该包已停止发布）
 
 `@deepseek-ai/dsh-invariants` 只在 next tag 发布 rc 版本（如
 `0.2.0-rc.2`），不存在能命中 `>=0.1.0-rc.2 <0.3.0` 区间的 stable 版。
 因此它**只能放 devDependencies 并精确钉死版本号**（不带 `^`/`>=`），
 不能进 peerDependencies——否则安装器永远解析失败。
 其余平台包 devDeps 同理钉精确快照，保证类型断言对象确定。
+
+**2026-10-11（sync-021/P4）更新**：官方 `0.2.1-alpha.2` 移除了运行时不变式架构，
+该包已停止发布；本仓已删除其 devDependency 与 overrides 死条目。本条目保留为历史陷阱记录。
 
 ## G4. tsdown 的 INEFFECTIVE_DYNAMIC_IMPORT 是无害警告
 
