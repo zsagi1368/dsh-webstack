@@ -4943,7 +4943,7 @@ function buildHistoryTool(deps, locale = "zh") {
 //#endregion
 //#region src/index.ts
 /** Cordis plugin name used by loader diagnostics. */
-const name = "webstack";
+const name = "dsh-webstack";
 /** Required seam: the web provider registry. Everything else is probed. */
 const inject = ["web"];
 /** 垂直腿引擎 id（settings verticals.channels.x 的接线对象）。 */

@@ -1,4 +1,4 @@
-window.__ModuleLoader__.load({ id: 'webstack', factory: (require) => { var module = { exports: {} }; var exports = module.exports;
+window.__ModuleLoader__.load({ id: 'dsh-webstack', factory: (require) => { var module = { exports: {} }; var exports = module.exports;
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let _deepseek_ai_dsh_client_store = require("@deepseek-ai/dsh-client-store");
 let react = require("react");

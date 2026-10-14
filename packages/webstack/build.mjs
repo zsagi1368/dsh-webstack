@@ -48,7 +48,7 @@ const clientUrl = new URL("./lib/client.js", import.meta.url);
 const clientBody = readFileSync(clientUrl, "utf8");
 if (!clientBody.includes("__ModuleLoader__")) {
 	const banner =
-		"window.__ModuleLoader__.load({ id: 'webstack', factory: (require) => { var module = { exports: {} }; var exports = module.exports;\n";
+		"window.__ModuleLoader__.load({ id: 'dsh-webstack', factory: (require) => { var module = { exports: {} }; var exports = module.exports;\n";
 	const footer = "\nreturn module.exports; } });\n";
 	writeFileSync(clientUrl, `${banner}${clientBody}${footer}`);
 }

@@ -85,7 +85,7 @@ export { checkTarget } from './safety/ssrf.ts';
 export { buildBatchSearchTool, buildHistoryTool } from './tools/web-tools.ts';
 
 /** Cordis plugin name used by loader diagnostics. */
-export const name = 'webstack';
+export const name = 'dsh-webstack';
 
 /** Required seam: the web provider registry. Everything else is probed. */
 export const inject = ['web'];

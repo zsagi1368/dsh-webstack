@@ -900,7 +900,7 @@ declare function buildHistoryTool(deps: HistoryToolDeps, locale?: Locale): impor
 //#endregion
 //#region src/index.d.ts
 /** Cordis plugin name used by loader diagnostics. */
-declare const name = "webstack";
+declare const name = "dsh-webstack";
 /** Required seam: the web provider registry. Everything else is probed. */
 declare const inject: string[];
 /** Public plugin configuration type. */
