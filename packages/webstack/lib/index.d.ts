@@ -924,7 +924,7 @@ interface PluginConfig {
   ssrfExempts?: string[];
   /** 自托管 SearXNG 实例根地址；空串 = 未配置（不注册该引擎）。 */
   searxngBaseUrl?: string;
-  /** 会话联网模式（mode.sessionOnline）：`on` 时搜索强制 fresh 跳缓存读。 */
+  /** 会话联网模式（mode.sessionOnline）：`on` 时搜索强制 fresh 跳缓存读；默认 `on`（2026-10 用户裁定）。 */
   sessionOnline?: SessionOnlineMode;
   /**
    * 缓存持久层档位（cache.persist）：`durable` 启用 L1——恒为文件适配器

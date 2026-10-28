@@ -98,11 +98,11 @@ describe('buildEngineRegistry 注册矩阵', () => {
 });
 
 describe('composeSnapshot / credsSourceViewFrom（纯装配辅助）', () => {
-  it('sessionOnline=on 映射 forceFresh；off/ask 不强制', () => {
+  it('sessionOnline=on 映射 forceFresh；off/ask 不强制（缺省回落 on：2026-10 默认联网开）', () => {
     expect(composeSnapshot({ sessionOnline: 'on' }).forceFresh).toBe(true);
     expect(composeSnapshot({ sessionOnline: 'off' }).forceFresh).toBe(false);
     expect(composeSnapshot({ sessionOnline: 'ask' }).forceFresh).toBe(false);
-    expect(composeSnapshot({}).forceFresh).toBe(false);
+    expect(composeSnapshot({}).forceFresh).toBe(true);
   });
 
   it('layerPools 与 verticalEngineIds 原样进快照', () => {

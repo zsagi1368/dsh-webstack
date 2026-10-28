@@ -4971,7 +4971,7 @@ const Config = z.object({
 		"off",
 		"on",
 		"ask"
-	]).default("off"),
+	]).default("on"),
 	cachePersist: z.union(["memory", "durable"]).default("memory"),
 	winProxyFallback: z.boolean().default(false),
 	engines: z.dict(z.any()).default({}),
@@ -5000,7 +5000,7 @@ function composeSnapshot(config, extras) {
 		maxContentChars: config.maxContentChars ?? 12e3,
 		ssrfExempts: [...config.ssrfExempts ?? []],
 		cacheEnabled: true,
-		forceFresh: (config.sessionOnline ?? "off") === "on",
+		forceFresh: (config.sessionOnline ?? "on") === "on",
 		...extras?.layerPools === void 0 ? {} : { layerPools: extras.layerPools },
 		...extras?.verticalEngineIds === void 0 ? {} : { verticalEngineIds: extras.verticalEngineIds }
 	};
@@ -5158,7 +5158,7 @@ function assembleWebstack(ctx, config = {}) {
 	};
 	buildCacheStack();
 	const sessionOnline = new SessionOnlineState();
-	sessionOnline.setMode(config.sessionOnline ?? "off");
+	sessionOnline.setMode(config.sessionOnline ?? "on");
 	const snapshotExtras = () => {
 		const pools = {};
 		if (built.mcpEngineIds.length > 0) pools.mcp = [...built.mcpEngineIds];
@@ -5184,7 +5184,7 @@ function assembleWebstack(ctx, config = {}) {
 			buildCacheStack();
 			aggregator.attachCache(cache);
 		}
-		sessionOnline.setMode(config.sessionOnline ?? "off");
+		sessionOnline.setMode(config.sessionOnline ?? "on");
 		aggregator.updateSnapshot(composeSnapshot(config, snapshotExtras()));
 	};
 	let source = () => ({ ...config });

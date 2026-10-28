@@ -40,14 +40,14 @@ const MODE_KEY: Record<SessionOnlineMode, ToggleKey> = {
 /** 组件 props：框架标准座席（t）+ 可选的宿主写入通道。alpha.4 起框架标准座不再注入 sessionId。 */
 export interface OnlineModeToggleProps {
   t: TranslateNS<'webstack.toggle'>;
-  /** 初始态；宿主可读时由装配层从快照注入，缺省 off。 */
+  /** 初始态；宿主可读时由装配层从快照注入，缺省 on（2026-10 默认联网开裁定）。 */
   initial?: SessionOnlineMode | undefined;
   /** 宿主写入通道；缺席 = 本地态降级。返回 false 表示写入被拒绝（本地回滚）。 */
   requestChange?: ((next: SessionOnlineMode) => boolean) | undefined;
 }
 
 export function OnlineModeToggle(props: OnlineModeToggleProps) {
-  const [mode, setMode] = useState<SessionOnlineMode>(props.initial ?? 'off');
+  const [mode, setMode] = useState<SessionOnlineMode>(props.initial ?? 'on');
   const click = () => {
     const next = nextOnlineMode(mode);
     const accepted = props.requestChange?.(next) ?? true;

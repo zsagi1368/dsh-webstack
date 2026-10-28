@@ -130,10 +130,23 @@ describe('input-toggle：三态循环与冒烟', () => {
     expect(nextOnlineMode('ask')).toBe('off');
   });
 
-  it('renderToString：本地态降级渲染初始态与本地提示', () => {
+  it('renderToString：本地态降级渲染初始态（缺省 on：2026-10 默认联网开）', () => {
     const html = renderToString(
       createElement(OnlineModeToggle, {
         t: ((key: string) => (toggleZh as Record<string, string>)[key] ?? key) as never,
+      }),
+    );
+    expect(html).toContain('data-mode="on"');
+    expect(html).toContain('联网:开');
+    // tipLocalOnly 只在 off 态显示：默认态的 title 是 tipOn。
+    expect(html).toContain('始终联网：点击切换为每次询问。');
+  });
+
+  it('renderToString：本地态降级 off 态显示本地提示', () => {
+    const html = renderToString(
+      createElement(OnlineModeToggle, {
+        t: ((key: string) => (toggleZh as Record<string, string>)[key] ?? key) as never,
+        initial: 'off',
       }),
     );
     expect(html).toContain('data-mode="off"');

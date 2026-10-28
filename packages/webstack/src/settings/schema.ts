@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     maxContentChars: 12_000,
   },
   mode: {
-    sessionOnline: 'off' satisfies SessionOnlineMode,
+    sessionOnline: 'on' satisfies SessionOnlineMode,
   },
   cache: {
     enabled: true,

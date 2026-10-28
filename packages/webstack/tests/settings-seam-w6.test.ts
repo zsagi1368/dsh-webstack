@@ -206,8 +206,8 @@ describe('W6 面② · 热生效链锁（contract-webstack.md:105 契约匹配�
     expect(Object.keys(cfg)).toEqual([]); // delete+assign 后零键（身份仍稳）
     expect(assembly.aggregator.snapshot.layer).toBe('free'); // normalizeLayer(undefined)→free
     expect(assembly.aggregator.snapshot.maxResults).toBe(8); // 默认回落
-    expect(assembly.aggregator.snapshot.forceFresh).toBe(false); // sessionOnline 缺席→off
-    expect(assembly.sessionOnline.getMode()).toBe('off');
+    expect(assembly.aggregator.snapshot.forceFresh).toBe(true); // sessionOnline 缺席→默认 on（2026-10 默认联网开）
+    expect(assembly.sessionOnline.getMode()).toBe('on');
     expect(prompt.disposed).toBe(2); // 每轮 status 节换新
     expect(prompt.sections).toHaveLength(4);
   });

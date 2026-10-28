@@ -25,7 +25,7 @@ describe('settings/schema W9 键位', () => {
   it('mode.sessionOnline / cache.persist 热生效语义与 W9 接线一致', () => {
     expect(HOT_RELOADABLE['mode.sessionOnline']).toBe(true);
     expect(HOT_RELOADABLE['cache.persist']).toBe(true);
-    expect(DEFAULT_SETTINGS.mode.sessionOnline).toBe('off');
+    expect(DEFAULT_SETTINGS.mode.sessionOnline).toBe('on'); // 2026-10 默认联网开
     expect(DEFAULT_SETTINGS.cache.persist).toBe('memory');
   });
 });

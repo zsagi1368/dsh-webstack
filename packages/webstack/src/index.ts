@@ -118,7 +118,7 @@ export interface PluginConfig {
   ssrfExempts?: string[];
   /** 自托管 SearXNG 实例根地址；空串 = 未配置（不注册该引擎）。 */
   searxngBaseUrl?: string;
-  /** 会话联网模式（mode.sessionOnline）：`on` 时搜索强制 fresh 跳缓存读。 */
+  /** 会话联网模式（mode.sessionOnline）：`on` 时搜索强制 fresh 跳缓存读；默认 `on`（2026-10 用户裁定）。 */
   sessionOnline?: SessionOnlineMode;
   /**
    * 缓存持久层档位（cache.persist）：`durable` 启用 L1——恒为文件适配器
@@ -152,7 +152,7 @@ export const Config: z<PluginConfig> = z.object({
   maxContentChars: z.number().default(12_000),
   ssrfExempts: z.array(z.string()).default([]),
   searxngBaseUrl: z.string().default(''),
-  sessionOnline: z.union(['off', 'on', 'ask'] as const).default('off'),
+  sessionOnline: z.union(['off', 'on', 'ask'] as const).default('on'),
   cachePersist: z.union(['memory', 'durable'] as const).default('memory'),
   winProxyFallback: z.boolean().default(false),
   engines: z.dict(z.any()).default({}),
@@ -194,7 +194,7 @@ export function composeSnapshot(
     maxContentChars: config.maxContentChars ?? 12_000,
     ssrfExempts: [...(config.ssrfExempts ?? [])],
     cacheEnabled: true,
-    forceFresh: (config.sessionOnline ?? 'off') === 'on',
+    forceFresh: (config.sessionOnline ?? 'on') === 'on',
     ...(extras?.layerPools === undefined ? {} : { layerPools: extras.layerPools }),
     ...(extras?.verticalEngineIds === undefined
       ? {}
@@ -454,7 +454,7 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
 
   // ---- 会话联网状态机（Host-owned 单实例；设置驱动 setMode）-----------------
   const sessionOnline = new SessionOnlineState();
-  sessionOnline.setMode(config.sessionOnline ?? 'off');
+  sessionOnline.setMode(config.sessionOnline ?? 'on');
 
   // ---- 快照组装：层池（mcp 动态集）+ 垂直腿 id------------------------------
   const snapshotExtras = (): {
@@ -495,7 +495,7 @@ export function assembleWebstack(ctx: Context, config: PluginConfig = {}): Webst
       buildCacheStack();
       aggregator.attachCache(cache);
     }
-    sessionOnline.setMode(config.sessionOnline ?? 'off');
+    sessionOnline.setMode(config.sessionOnline ?? 'on');
     aggregator.updateSnapshot(composeSnapshot(config, snapshotExtras()));
   };
 

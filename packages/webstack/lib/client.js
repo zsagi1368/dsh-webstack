@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS = Object.freeze({
 		defaultMode: "raw",
 		maxContentChars: 12e3
 	},
-	mode: { sessionOnline: "off" },
+	mode: { sessionOnline: "on" },
 	cache: {
 		enabled: true,
 		ttlSearchMin: 10,
@@ -337,7 +337,7 @@ const MODE_KEY = {
 	ask: "modeAsk"
 };
 function OnlineModeToggle(props) {
-	const [mode, setMode] = (0, react.useState)(props.initial ?? "off");
+	const [mode, setMode] = (0, react.useState)(props.initial ?? "on");
 	const click = () => {
 		const next = nextOnlineMode(mode);
 		if (props.requestChange?.(next) ?? true) setMode(next);
